@@ -9,6 +9,7 @@ from signals import SignalCalculator
 from risk_manager import RiskManager
 from portfolio import PortfolioManager
 from engine import TradingEngine
+from bayesian_state import get_bayesian_state_machine
 
 
 def create_config(config_path: str = "config.json") -> Config:
@@ -23,7 +24,8 @@ def create_data_manager(config: Config) -> DataManager:
 
 def create_signal_calculator(config: Config, data_manager: DataManager) -> SignalCalculator:
     """Create and return a SignalCalculator instance."""
-    return SignalCalculator(config, data_manager)
+    bayesian_state_machine = get_bayesian_state_machine(config._config_data)
+    return SignalCalculator(config, data_manager, bayesian_state_machine)
 
 
 def create_risk_manager(config: Config) -> RiskManager:

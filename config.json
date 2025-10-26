@@ -144,6 +144,15 @@
     "initial_capital": 100000,
     "benchmark": "SPY",
     "historical_trends_csv": null
+  },
+
+  "bayesian": {
+    "enabled": true,
+    "n_states": 3,
+    "conviction_threshold": 0.7,
+    "priors": [0.3, 0.4, 0.3],
+    "training_samples": 1000,
+    "inference_timeout": 2.0
   }
-  
+
 }

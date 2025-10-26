@@ -19,18 +19,18 @@ except ImportError:
 # Dependencies are now injected via constructor
 from utils import (
     calculate_z_score, calculate_atr,
-    validate_symbol, validate_universe, validate_tradable_assets,
-    get_bayesian_state_machine
+    validate_symbol, validate_universe, validate_tradable_assets
 )
 
 
 class SignalCalculator:
     """Calculates trading signals based on volatility, volume, and attention metrics."""
 
-    def __init__(self, config, data_manager):
+    def __init__(self, config, data_manager, bayesian_state_machine=None):
         """Initialize signal calculator with injected dependencies."""
         self.config = config
         self.data_manager = data_manager
+        self.bayesian_state_machine = bayesian_state_machine
         self.logger = logging.getLogger(__name__)
 
         # Get parameters from config
@@ -39,9 +39,8 @@ class SignalCalculator:
         self.panic_threshold = self.config.get('signals.panic_threshold', 3.0)
         self.g_score_threshold = self.config.get('macro_risk.g_score_threshold', 2)
 
-        # Initialize Bayesian State Machine for conviction assessment
-        self.state_machine = get_bayesian_state_machine()
-        if self.state_machine:
+        # Log Bayesian State Machine status
+        if self.bayesian_state_machine:
             self.logger.info("Bayesian State Machine loaded for signal conviction assessment")
         else:
             self.logger.warning("Bayesian State Machine not available - using rule-based logic")
@@ -359,11 +358,11 @@ class SignalCalculator:
                     self.logger.debug(f"Could not calculate all z-scores for {symbol}: {e}")
 
                 # Use Bayesian State Machine for conviction assessment
-                if self.state_machine:
-                    features = self.state_machine.prepare_features(
+                if self.bayesian_state_machine:
+                    features = self.bayesian_state_machine.prepare_features(
                         volatility_z, volume_z, trends_z, g_score, price_change_5d
                     )
-                    conviction = self.state_machine.assess_conviction(features)
+                    conviction = self.bayesian_state_machine.assess_conviction(features)
 
                     # Only generate signal if state machine says to trade
                     if conviction['should_trade']:

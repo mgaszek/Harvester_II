@@ -38,3 +38,46 @@ Updated October 26, 2025: Infused with the Inquisition's rites. Numbered for tra
 9. **Add Advanced Features** (Low, 10-20 hours) [ ]  
    Ccxt multi-exchange; webhooks/Plotly reports; GitHub Actions CI.  
    - Approach: data_manager.py integrate; risk_manager.py alerts; .github/workflows.
+
+10. **Implementing Bayesian State Machine v2 in Harvester II**
+This list keeps scope tight: Focus on a lightweight HMM-based BSM (using hmmlearn) for regime detection in signals.py, integrated via DI. No full Bayesian nets or MCMC—aim for <10% code bloat, 5-8 hours total. Builds on existing z-scores/CRI/Panic without rewriting. Test-first to avoid creep. Mark [ ] as done.
+
+Setup Dependencies and Config (30-45 min) [✓ COMPLETED]
+Add hmmlearn to requirements.txt (lightweight HMM lib).
+
+Approach: pip install hmmlearn==0.3.2; add to config.json: 'bayesian': {'n_states': 3, 'conviction_thresh': 0.7, 'priors': [0.3, 0.4, 0.3]} (bull/bear/panic priors).
+Update di.py: Inject BayesianStateMachine(config) into SignalCalculator.
+
+**COMPLETED**: Added hmmlearn>=0.3.0 and scikit-learn>=1.3.0 to requirements.txt. Added comprehensive Bayesian config section to config.json with n_states, conviction_threshold, priors, training_samples, and inference_timeout. Updated di.py to inject BayesianStateMachine into SignalCalculator constructor.
+
+
+Prototype Core BSM Class (1-1.5 hours) [✓ COMPLETED]
+Create src/bayesian_state.py with minimal HMM.
+
+Approach: Fit on historical features [z_vol, z_volume, z_trends, g_score]; predict P(panic | current). Output: {'conviction': float, 'state_probs': dict}. Reuse utils.py z-scores. Lazy-fit on first call.
+
+**COMPLETED**: Created dedicated src/bayesian_state.py module with production-ready BayesianStateMachine class. Implements HMM with 3 market states (calm/volatile/panic), configurable priors, conviction threshold, and inference timeout. Includes synthetic data generation, robust fallback logic, and comprehensive config handling. Integrated via DI with lazy training on first use.
+
+
+Integrate into Signals (Quickening Lite) (1-1.5 hours) [ ]
+Enhance signals.py: Wrap calculate_panic_score with enhanced_panic = panic * bsm.conviction.
+
+Approach: If conviction > thresh, scale entry signal; else, dampen (e.g., *0.5). Keep deterministic fallback if lib fails.
+
+
+Basic Unit Tests (1 hour) [ ]
+Add to test_signals.py: Mock features, assert conviction ~0.8 for panic sim, ~0.2 for noise.
+
+Approach: Use numpy arrays for fit/predict; cover edges (low data → fallback 0.5 conviction).
+
+
+Backtest Integration and Validation (1 hour) [ ]
+Hook into backtest.py: Run A/B (with/without BSM) on sample period (2020-2021).
+
+Approach: Assert Sharpe improves >5% in test_backtest.py; log conviction in equity_curve for debug.
+
+
+Refine and Polish (30-45 min) [ ]
+Add README section: "Bayesian Quickening" with usage example.
+
+Approach: Config toggle ('bayesian.enabled': true); monitor perf (if >2s inference, disable). Commit to develop branch, PR to main with "Quickening Rite v1".
