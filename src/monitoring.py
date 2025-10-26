@@ -4,7 +4,7 @@ Provides Prometheus gauges for comprehensive system monitoring.
 """
 
 import time
-from typing import Any
+from typing import Any, Optional
 
 try:
     from prometheus_client import (
@@ -35,7 +35,7 @@ class HarvesterMetrics:
     Extends Prometheus monitoring with bias analysis and conviction tracking.
     """
 
-    def __init__(self, registry: CollectorRegistry | None = None):
+    def __init__(self, registry: Optional[CollectorRegistry] = None):
         """
         Initialize metrics collection.
 
@@ -264,6 +264,33 @@ class HarvesterMetrics:
         self.sharpe_ratio_gauge.set(capital.get("sharpe_ratio", 0))
         self.win_rate_gauge.set(capital.get("win_rate", 0))
         self.max_drawdown_gauge.set(capital.get("max_drawdown", 0))
+
+    def update_equity_curve_metrics(self, equity_curve: list[dict[str, Any]]) -> None:
+        """Update equity curve metrics for monitoring."""
+        if not self.enabled or not equity_curve:
+            return
+
+        try:
+            # Get the latest equity value
+            latest_equity = equity_curve[-1].get("equity", 0)
+            self.equity_gauge.set(latest_equity)
+
+            # Calculate current drawdown if we have enough data
+            if len(equity_curve) > 1:
+                peak_equity = max(entry.get("equity", 0) for entry in equity_curve)
+                current_drawdown = (peak_equity - latest_equity) / peak_equity * 100
+                self.drawdown_gauge.set(current_drawdown)
+
+            # Calculate daily P&L if we have at least 2 data points
+            if len(equity_curve) >= 2:
+                previous_equity = equity_curve[-2].get("equity", 0)
+                daily_pnl = latest_equity - previous_equity
+                self.daily_pnl_gauge.set(daily_pnl)
+
+            harvester_logger.debug(f"Updated equity curve metrics: equity={latest_equity}")
+
+        except Exception as e:
+            harvester_logger.error(f"Failed to update equity curve metrics: {e}")
 
     def update_system_health(self, health_status: dict[str, Any]) -> None:
         """Update system health metrics."""

@@ -296,7 +296,7 @@ class SignalCalculator:
             try:
                 # Get price and trends data
                 price_data = self.data_manager.get_price_data(symbol, period="3mo")
-                trends_data = self.data_manager.get_google_trends(
+                trends_data, trends_latency = self.data_manager.get_google_trends(
                     symbol, timeframe="today 3-m"
                 )
 
@@ -304,8 +304,18 @@ class SignalCalculator:
                     self.logger.warning(f"No price data for {symbol}")
                     continue
 
-                # Calculate CRI
+                # Check for stale trends data (>24 hours)
+                stale_data_penalty = 0.0
+                if trends_latency > 24:  # More than 24 hours old
+                    stale_data_penalty = 0.5  # Reduce CRI by 50%
+                    self.logger.warning(
+                        f"Using stale trends data for {symbol} ({trends_latency:.1f}h old), "
+                        f"applying {stale_data_penalty*100:.0f}% penalty"
+                    )
+
+                # Calculate CRI with stale data penalty
                 cri = self.calculate_cri(symbol, price_data, trends_data)
+                cri = max(0, cri * (1 - stale_data_penalty))  # Apply penalty
 
                 if cri >= self.cri_threshold:
                     tradable_assets.append(symbol)
@@ -344,12 +354,21 @@ class SignalCalculator:
             try:
                 # Get recent data
                 price_data = self.data_manager.get_price_data(symbol, period="3mo")
-                trends_data = self.data_manager.get_google_trends(
+                trends_data, trends_latency = self.data_manager.get_google_trends(
                     symbol, timeframe="today 3-m"
                 )
 
                 if price_data.empty:
                     continue
+
+                # Check for stale trends data and reduce conviction
+                conviction_multiplier = 1.0
+                if trends_latency > 24:  # More than 24 hours old
+                    conviction_multiplier = 0.0  # Zero conviction for stale data
+                    self.logger.warning(
+                        f"Stale trends data for {symbol} ({trends_latency:.1f}h old), "
+                        f"setting conviction to zero"
+                    )
 
                 # Calculate base Panic Score
                 panic_score = self.calculate_panic_score(
@@ -397,6 +416,9 @@ class SignalCalculator:
                 market_state = "unknown"
                 assessment_method = "rules"
 
+                # Apply stale data penalty to conviction multiplier
+                final_conviction_multiplier = conviction_multiplier
+
                 if self.bayesian_state_machine:
                     try:
                         features = self.bayesian_state_machine.prepare_features(
@@ -407,24 +429,31 @@ class SignalCalculator:
                         )
 
                         # Enhance panic score with Bayesian conviction
-                        conviction_multiplier = conviction["confidence"]
-                        enhanced_panic_score = panic_score * conviction_multiplier
+                        bayesian_multiplier = conviction["confidence"]
+                        final_conviction_multiplier = conviction_multiplier * bayesian_multiplier
+                        enhanced_panic_score = panic_score * final_conviction_multiplier
 
                         conviction_level = conviction["conviction_level"]
                         confidence = conviction["confidence"]
                         market_state = conviction.get("state", "unknown")
-                        assessment_method = conviction["method"]
+                        assessment_method = f"{conviction['method']}_stale_penalty" if conviction_multiplier < 1.0 else conviction["method"]
 
                         self.logger.debug(
                             f"Enhanced panic score for {symbol}: {panic_score:.2f} -> {enhanced_panic_score:.2f} "
-                            f"(multiplier: {conviction_multiplier:.2f})"
+                            f"(stale_mult: {conviction_multiplier:.2f}, bayesian_mult: {bayesian_multiplier:.2f})"
                         )
 
                     except Exception as e:
                         self.logger.warning(
                             f"Bayesian enhancement failed for {symbol}, using base score: {e}"
                         )
-                        # Fall back to base panic score
+                        # Fall back to base panic score with stale penalty
+                        enhanced_panic_score = panic_score * conviction_multiplier
+                        assessment_method = "rules_stale_penalty" if conviction_multiplier < 1.0 else "rules"
+                else:
+                    # No Bayesian, just apply stale penalty
+                    enhanced_panic_score = panic_score * conviction_multiplier
+                    assessment_method = "rules_stale_penalty" if conviction_multiplier < 1.0 else "rules"
 
                 # Generate signal based on enhanced panic score
                 if enhanced_panic_score > self.panic_threshold:

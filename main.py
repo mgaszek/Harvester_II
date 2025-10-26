@@ -11,7 +11,7 @@ import sys
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from di import create_trading_engine
+from di import create_trading_engine, create_components
 from logging_config import harvester_logger as logger
 from logging_config import setup_logging
 
@@ -28,6 +28,7 @@ def main():
             "walk-forward",
             "survivor-free",
             "bias-check",
+            "baseline",
             "status",
             "metrics",
             "optimize",
@@ -58,8 +59,9 @@ def main():
             config=args.config,
         )
 
-        # Get trading engine with dependency injection
-        engine = create_trading_engine(args.config)
+        # Get components with dependency injection
+        components = create_components(args.config)
+        engine = components["trading_engine"]
 
         if args.mode == "live":
             logger.info("Starting live trading mode")
@@ -264,6 +266,52 @@ def main():
                     total_return=capital.get("total_return", 0),
                 )
 
+        elif args.mode == "baseline":
+            logger.info("Starting baseline walk-forward validation mode")
+            # Create backtest engine directly
+            from backtest import BacktestEngine
+            backtest_engine = BacktestEngine(
+                components["config"],
+                components["data_manager"],
+                components["signal_calculator"],
+                components["risk_manager"]
+            )
+            results = backtest_engine.run_walk_forward_baseline(
+                start_date="2020-01-01",
+                end_date="2025-10-26",
+                initial_capital=100000,
+                log_file="logs/baseline_2025.log"
+            )
+
+            if "error" in results:
+                logger.error("Baseline validation failed", error=results["error"])
+            else:
+                print("\\n=== Baseline Walk-Forward Validation Results ===")
+                print(f"Period: 2020-01-01 to 2025-10-26")
+                print(f"Survivor-free Universe: {results.get('survivor_universe_size', 0)} assets")
+                print(f"Log File: {results.get('baseline_log', 'N/A')}")
+
+                summary = results.get("summary", {})
+                print("\\n--- Summary Statistics ---")
+                print(f"Average Train Sharpe: {summary.get('avg_train_sharpe', 'N/A')}")
+                print(f"Average Test Sharpe: {summary.get('avg_test_sharpe', 'N/A')}")
+                print(f"Average Sharpe Gap: {summary.get('avg_sharpe_gap', 'N/A')}")
+                print(f"Consistency Score: {summary.get('consistency_score', 'N/A')}")
+
+                folds = results.get("folds", [])
+                print(f"\\nWalk-forward Folds: {len(folds)}")
+                for fold in folds:
+                    perf_gap = fold.get('performance_gap', {})
+                    sharpe_gap = perf_gap.get('sharpe_gap', 'N/A')
+                    print(f"  Fold {fold['fold']}: Sharpe Gap = {sharpe_gap}")
+
+                logger.info(
+                    "Baseline validation completed",
+                    folds=len(folds),
+                    avg_test_sharpe=summary.get('avg_test_sharpe'),
+                    consistency_score=summary.get('consistency_score')
+                )
+
         elif args.mode == "bias-check":
             logger.info("Starting bias detection mode")
             results = engine.detect_backtest_biases()
@@ -390,6 +438,9 @@ def main():
         logger.info("System stopped by user")
     except Exception as e:
         logger.error("System error", error=str(e), exc_info=True)
+        print(f"System error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

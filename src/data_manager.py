@@ -64,6 +64,9 @@ class DataManager:
         # TTL Cache for Bayesian posterior probabilities (5min TTL for performance)
         self._posterior_cache = TTLCache(maxsize=50, ttl=300)  # 5 minutes
 
+        # Timestamp tracking for data latency monitoring
+        self._trends_timestamps = {}
+
     def _init_yfinance(self) -> None:
         """Initialize Yahoo Finance client."""
         try:
@@ -226,9 +229,9 @@ class DataManager:
 
     def get_google_trends(
         self, keyword: str, timeframe: str = "today 12-m", use_cache: bool = True
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, float]:
         """
-        Get Google Trends data for a keyword.
+        Get Google Trends data for a keyword with latency tracking.
 
         Args:
             keyword: Search keyword
@@ -236,56 +239,78 @@ class DataManager:
             use_cache: Whether to use cached data
 
         Returns:
-            DataFrame with trends data
+            Tuple of (DataFrame with trends data, latency_hours)
+            latency_hours = 0 if fresh data, >0 if cached/stale, -1 if error
         """
+        import time
         cache_key = f"{keyword}_{timeframe}"
 
         # Check cache first (TTLCache handles expiration automatically)
         if use_cache and cache_key in self._trends_cache:
-            return self._trends_cache[cache_key]
+            # Check if we have a timestamp for this data
+            timestamp_key = f"{cache_key}_timestamp"
+            if timestamp_key in self._trends_timestamps:
+                fetch_time = self._trends_timestamps[timestamp_key]
+                latency_hours = (time.time() - fetch_time) / 3600  # Convert to hours
+
+                # Log latency for monitoring
+                if latency_hours > 1:  # Only log if > 1 hour old
+                    self.logger.info(
+                        f"Using cached trends data for {keyword}: {latency_hours:.1f}h old"
+                    )
+
+                return self._trends_cache[cache_key], latency_hours
+            else:
+                # No timestamp available, assume fresh
+                return self._trends_cache[cache_key], 0.0
 
         try:
             if self.trends_available:
+                fetch_start = time.time()
                 self.pytrends.build_payload([keyword], timeframe=timeframe)
                 trends_data = self.pytrends.interest_over_time()
+                fetch_time = time.time() - fetch_start
 
                 if trends_data.empty:
                     self.logger.warning(f"No trends data for {keyword}")
-                    return pd.DataFrame()
+                    return pd.DataFrame(), -1
 
                 # Clean up the data
                 trends_data = trends_data.drop(columns=["isPartial"])
                 trends_data.columns = ["value"]
 
-                # Cache the data
+                # Cache the data with timestamp
                 self._trends_cache[cache_key] = trends_data
+                self._trends_timestamps[f"{cache_key}_timestamp"] = time.time()
+
                 self._save_to_db("trends_cache", keyword, trends_data)
 
                 self.logger.info(
-                    f"Fetched trends data for {keyword}: {len(trends_data)} records"
+                    f"Fetched trends data for {keyword}: {len(trends_data)} records "
+                    f"(fetch time: {fetch_time:.2f}s)"
                 )
-                return trends_data
+                return trends_data, 0.0  # Fresh data
 
             self.logger.error("Google Trends not available")
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
 
         except (requests.RequestException, ConnectionError) as e:
             self.logger.error(f"Network error fetching trends data for {keyword}: {e}")
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
         except ValueError as e:
             self.logger.error(f"Invalid trends data received for {keyword}: {e}")
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
         except Exception as e:
             self.logger.error(
                 f"Unexpected error fetching trends data for {keyword}: {e}"
             )
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
 
     async def get_google_trends_async(
         self, keyword: str, timeframe: str = "today 12-m", use_cache: bool = True
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, float]:
         """
-        Async version: Get Google Trends data for a keyword.
+        Async version: Get Google Trends data for a keyword with latency tracking.
 
         Args:
             keyword: Search keyword
@@ -293,17 +318,35 @@ class DataManager:
             use_cache: Whether to use cached data
 
         Returns:
-            DataFrame with trends data
+            Tuple of (DataFrame with trends data, latency_hours)
+            latency_hours = 0 if fresh data, >0 if cached/stale, -1 if error
         """
+        import time
         cache_key = f"{keyword}_{timeframe}"
 
         # Check cache first (TTLCache handles expiration automatically)
         if use_cache and cache_key in self._trends_cache:
-            return self._trends_cache[cache_key]
+            # Check if we have a timestamp for this data
+            timestamp_key = f"{cache_key}_timestamp"
+            if timestamp_key in self._trends_timestamps:
+                fetch_time = self._trends_timestamps[timestamp_key]
+                latency_hours = (time.time() - fetch_time) / 3600  # Convert to hours
+
+                # Log latency for monitoring
+                if latency_hours > 1:  # Only log if > 1 hour old
+                    self.logger.info(
+                        f"Using cached trends data for {keyword}: {latency_hours:.1f}h old"
+                    )
+
+                return self._trends_cache[cache_key], latency_hours
+            else:
+                # No timestamp available, assume fresh
+                return self._trends_cache[cache_key], 0.0
 
         try:
             if self.trends_available:
                 # Use asyncio.to_thread to run the synchronous pytrends calls in a thread
+                fetch_start = time.time()
                 pytrends_instance = TrendReq(hl="en-US", tz=360)
                 await asyncio.to_thread(
                     pytrends_instance.build_payload, [keyword], timeframe=timeframe
@@ -311,38 +354,42 @@ class DataManager:
                 trends_data = await asyncio.to_thread(
                     pytrends_instance.interest_over_time
                 )
+                fetch_time = time.time() - fetch_start
 
                 if trends_data.empty:
                     self.logger.warning(f"No trends data for {keyword}")
-                    return pd.DataFrame()
+                    return pd.DataFrame(), -1
 
                 # Clean up the data
                 trends_data = trends_data.drop(columns=["isPartial"])
                 trends_data.columns = ["value"]
 
-                # Cache the data
+                # Cache the data with timestamp
                 self._trends_cache[cache_key] = trends_data
+                self._trends_timestamps[f"{cache_key}_timestamp"] = time.time()
+
                 self._save_to_db("trends_cache", keyword, trends_data)
 
                 self.logger.info(
-                    f"Async fetched trends data for {keyword}: {len(trends_data)} records"
+                    f"Async fetched trends data for {keyword}: {len(trends_data)} records "
+                    f"(fetch time: {fetch_time:.2f}s)"
                 )
-                return trends_data
+                return trends_data, 0.0  # Fresh data
 
             self.logger.error("Google Trends not available")
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
 
         except (requests.RequestException, ConnectionError) as e:
             self.logger.error(f"Network error fetching trends data for {keyword}: {e}")
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
         except ValueError as e:
             self.logger.error(f"Invalid trends data received for {keyword}: {e}")
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
         except Exception as e:
             self.logger.error(
                 f"Unexpected error fetching trends data for {keyword}: {e}"
             )
-            return pd.DataFrame()
+            return pd.DataFrame(), -1
 
     def get_macro_indicator(
         self, indicator: str, symbol: str = None, use_cache: bool = True

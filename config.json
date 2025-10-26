@@ -87,7 +87,10 @@
     "execution": {
       "order_type": "market",
       "slippage_tolerance": 0.001,
-      "commission_per_trade": 1.0
+      "commission_per_trade": 1.0,
+      "bid_ask_spread": 0.0005,
+      "volume_slippage_base": 0.001,
+      "fill_delay_impact": 0.0001
     },
     "schedule": {
       "run_time": "16:00",

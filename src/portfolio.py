@@ -522,6 +522,51 @@ class PortfolioManager:
 
         return pd.DataFrame(self.trade_history)
 
+    def execute_live_alpaca(self, symbol: str, quantity: float, side: str, order_type: str = "market") -> dict:
+        """
+        Execute live trade via Alpaca API (stub implementation).
+
+        Args:
+            symbol: Trading symbol (e.g., 'AAPL')
+            quantity: Number of shares to trade
+            side: 'buy' or 'sell'
+            order_type: Order type ('market', 'limit', etc.)
+
+        Returns:
+            dict: Order execution result with status, order_id, etc.
+        """
+        # TODO: Replace with actual Alpaca API integration
+        # Requires: pip install alpaca-py
+        # API credentials from environment variables or config
+
+        self.logger.info(f"STUB: Executing {side} order for {quantity} shares of {symbol} via Alpaca")
+
+        # Simulate Alpaca API response structure
+        stub_response = {
+            "order_id": f"alpaca_stub_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "symbol": symbol,
+            "quantity": quantity,
+            "side": side,
+            "order_type": order_type,
+            "status": "filled",  # 'accepted', 'filled', 'rejected'
+            "filled_quantity": quantity,
+            "avg_fill_price": 150.00,  # Would be actual market price
+            "execution_timestamp": datetime.now().isoformat(),
+            "commission": quantity * 0.01,  # $0.01 per share
+            "notes": "This is a stub implementation. Replace with actual Alpaca API calls."
+        }
+
+        # Log execution details
+        self.logger.info(
+            f"Alpaca order {stub_response['order_id']} executed: "
+            f"{side} {quantity} {symbol} @ ${stub_response['avg_fill_price']:.2f}"
+        )
+
+        # Note: In a live system, trade recording would be handled by Alpaca webhooks
+        # or order fill callbacks. This stub just simulates the API response.
+
+        return stub_response
+
     def close(self) -> None:
         """Close database connection."""
         if self.db_manager:

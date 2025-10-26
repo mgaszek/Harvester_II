@@ -551,6 +551,162 @@ class RiskManager:
             self.logger.error(f"Failed to get trailing stop info for {symbol}: {e}")
             return None
 
+    def check_signal_correlation(self, signals: dict[str, dict]) -> dict[str, float]:
+        """
+        Check for dangerous correlations in trading signals.
+
+        Args:
+            signals: Dictionary mapping symbols to signal dictionaries containing
+                    'panic_score', 'cri_score', etc.
+
+        Returns:
+            Dictionary with correlation analysis results including:
+            - panic_correlation: Correlation between panic scores
+            - cri_correlation: Correlation between CRI scores
+            - systemic_risk_level: 0-1 scale of systemic risk
+            - diversification_score: 0-1 scale of signal diversification
+        """
+        try:
+            import numpy as np
+
+            if not signals or len(signals) < 2:
+                return {
+                    "panic_correlation": 0.0,
+                    "cri_correlation": 0.0,
+                    "systemic_risk_level": 0.0,
+                    "diversification_score": 1.0,
+                }
+
+            # Extract signal components
+            panic_scores = []
+            cri_scores = []
+            symbols = []
+
+            for symbol, signal_data in signals.items():
+                if isinstance(signal_data, dict):
+                    panic_scores.append(signal_data.get("panic_score", 0))
+                    cri_scores.append(signal_data.get("cri_score", 0))
+                    symbols.append(symbol)
+
+            if len(panic_scores) < 2:
+                return {
+                    "panic_correlation": 0.0,
+                    "cri_correlation": 0.0,
+                    "systemic_risk_level": 0.0,
+                    "diversification_score": 1.0,
+                }
+
+            # Calculate correlations
+            try:
+                if len(panic_scores) == 2:
+                    panic_corr = float(np.corrcoef(panic_scores)[0, 1])
+                elif len(panic_scores) > 2:
+                    # For multiple signals, use average pairwise correlation
+                    panic_corr_matrix = np.corrcoef(panic_scores)
+                    # Get upper triangle without diagonal
+                    upper_tri = panic_corr_matrix[np.triu_indices_from(panic_corr_matrix, k=1)]
+                    panic_corr = float(np.mean(upper_tri)) if len(upper_tri) > 0 else 0.0
+                else:
+                    panic_corr = 0.0
+
+                if len(cri_scores) == 2:
+                    cri_corr = float(np.corrcoef(cri_scores)[0, 1])
+                elif len(cri_scores) > 2:
+                    # For multiple signals, use average pairwise correlation
+                    cri_corr_matrix = np.corrcoef(cri_scores)
+                    # Get upper triangle without diagonal
+                    upper_tri = cri_corr_matrix[np.triu_indices_from(cri_corr_matrix, k=1)]
+                    cri_corr = float(np.mean(upper_tri)) if len(upper_tri) > 0 else 0.0
+                else:
+                    cri_corr = 0.0
+
+            except (ValueError, IndexError):
+                panic_corr = 0.0
+                cri_corr = 0.0
+
+            # Calculate systemic risk level (0-1 scale)
+            # High correlation + high panic scores = high systemic risk
+            avg_panic = np.mean(panic_scores)
+            systemic_risk = min(1.0, (abs(panic_corr) * avg_panic / 3.0))
+
+            # Calculate diversification score (0-1 scale)
+            # Lower correlation = higher diversification
+            diversification_score = 1.0 - min(1.0, abs(panic_corr))
+
+            return {
+                "panic_correlation": panic_corr,
+                "cri_correlation": cri_corr,
+                "systemic_risk_level": systemic_risk,
+                "diversification_score": diversification_score,
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to check signal correlation: {e}")
+            return {
+                "panic_correlation": 0.0,
+                "cri_correlation": 0.0,
+                "systemic_risk_level": 0.0,
+                "diversification_score": 1.0,
+            }
+
+    def assess_portfolio_risk_from_signals(
+        self, signals: dict[str, dict], existing_positions: dict = None
+    ) -> dict[str, float]:
+        """
+        Assess overall portfolio risk based on incoming signals.
+
+        Args:
+            signals: Dictionary of signals as above
+            existing_positions: Current portfolio positions
+
+        Returns:
+            Risk assessment including concentration risk, correlation risk, etc.
+        """
+        try:
+            correlation_analysis = self.check_signal_correlation(signals)
+
+            # Additional risk metrics
+            high_panic_signals = sum(
+                1 for s in signals.values()
+                if isinstance(s, dict) and s.get("panic_score", 0) > 2.0
+            )
+
+            total_signals = len(signals)
+            panic_concentration = high_panic_signals / max(total_signals, 1)
+
+            # Position concentration risk (if positions provided)
+            position_concentration = 0.0
+            if existing_positions:
+                total_value = sum(p.get("position_value", 0) for p in existing_positions.values())
+                if total_value > 0:
+                    max_position_pct = max(
+                        p.get("position_value", 0) / total_value
+                        for p in existing_positions.values()
+                    )
+                    position_concentration = max_position_pct
+
+            return {
+                **correlation_analysis,
+                "panic_concentration": panic_concentration,
+                "high_panic_signal_count": high_panic_signals,
+                "position_concentration": position_concentration,
+                "overall_risk_score": min(1.0, (
+                    correlation_analysis["systemic_risk_level"] +
+                    panic_concentration * 0.3 +
+                    position_concentration * 0.2
+                )),
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to assess portfolio risk from signals: {e}")
+            return {
+                "systemic_risk_level": 0.0,
+                "diversification_score": 1.0,
+                "panic_concentration": 0.0,
+                "position_concentration": 0.0,
+                "overall_risk_score": 0.0,
+            }
+
     def get_position_history(self) -> pd.DataFrame:
         """
         Get position history as DataFrame.

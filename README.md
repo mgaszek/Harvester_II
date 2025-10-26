@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/your-username/harvester-ii/workflows/CI/badge.svg)](https://github.com/your-username/harvester-ii/actions)
-[![Coverage](https://codecov.io/gh/your-username/harvester-ii/branch/develop/graph/badge.svg)](https://codecov.io/gh/your-username/harvester-ii)
+[![codecov](https://codecov.io/gh/your-username/harvester-ii/branch/develop/graph/badge.svg)](https://codecov.io/gh/your-username/harvester-ii)
 [![Code Style](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 A sophisticated volatility and attention-driven trading system designed to capture market extremes using crowd psychology and technical analysis. Features enterprise-grade logging, monitoring, and performance optimizations for production deployment.
@@ -146,6 +146,33 @@ kl_divergence = min([KL_divergence(obs_dist, state_dist) for state_dist in model
 
 if kl_divergence < 0.1:  # Low evidence threshold
     return fallback_assessment()  # Rule-based logic
+```
+
+#### Predict Conviction Example
+
+Real-time conviction assessment with stale data handling:
+
+```python
+from src.bayesian_state import get_bayesian_state_machine
+
+# Initialize with data manager for caching
+bsm = get_bayesian_state_machine(config, data_manager)
+
+# Prepare market features
+features = bsm.prepare_features(
+    volatility_z=1.2,
+    volume_z=-0.8,
+    trends_z=2.1,
+    g_score=1.8,
+    price_change_5d=0.034
+)
+
+# Assess conviction with caching and edge detection
+conviction = bsm.assess_conviction(features)
+
+print(f"Market State: {conviction['state']}")  # 'panic', 'volatile', 'calm'
+print(f"Conviction Level: {conviction['confidence']:.3f}")  # 0.0-1.0
+print(f"Assessment Method: {conviction['method']}")  # 'bayesian', 'fallback', etc.
 ```
 
 #### Performance Caching

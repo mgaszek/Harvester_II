@@ -91,11 +91,12 @@ class TestDataManagerIntegration:
             mock_daily_data.return_value = trends_data
 
             data_manager = DataManager(sample_config)
-            result = data_manager.get_google_trends("SPY", timeframe="today 5-d")
+            result, latency = data_manager.get_google_trends("SPY", timeframe="today 5-d")
 
             assert not result.empty
             assert "value" in result.columns
             assert len(result) == 5
+            assert isinstance(latency, (int, float))
 
     @responses.activate
     def test_get_google_trends_failure(self, sample_config):
@@ -108,9 +109,10 @@ class TestDataManagerIntegration:
             )  # Empty response
 
             data_manager = DataManager(sample_config)
-            result = data_manager.get_google_trends("SPY", timeframe="today 5-d")
+            result, latency = data_manager.get_google_trends("SPY", timeframe="today 5-d")
 
             assert result.empty
+            assert latency == -1  # Error case
 
     @responses.activate
     def test_get_macro_indicator_vix_success(self, sample_config):
@@ -349,10 +351,11 @@ def test_end_to_end_data_flow(sample_config):
 
             # Test data retrieval
             price_result = data_manager.get_price_data("SPY", period="5d")
-            trends_result = data_manager.get_google_trends("SPY", timeframe="today 5-d")
+            trends_result, trends_latency = data_manager.get_google_trends("SPY", timeframe="today 5-d")
 
     assert not price_result.empty
     assert not trends_result.empty
+    assert isinstance(trends_latency, (int, float))
 
     # Test signal calculation
     cri = signal_calc.calculate_cri("SPY", price_result, trends_result)

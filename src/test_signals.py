@@ -222,24 +222,28 @@ class TestSignalCalculator:
 
     def test_validate_symbol_valid(self, sample_signal_calculator):
         """Test symbol validation with valid symbols."""
+        from utils import validate_symbol
+
         # Should not raise exception
-        sample_signal_calculator._validate_symbol("SPY")
-        sample_signal_calculator._validate_symbol("AAPL")
-        sample_signal_calculator._validate_symbol("BTC-USD")
+        validate_symbol("SPY")
+        validate_symbol("AAPL")
+        validate_symbol("BTC-USD")
 
     def test_validate_symbol_invalid(self, sample_signal_calculator):
         """Test symbol validation with invalid symbols."""
+        from utils import validate_symbol
+
         with pytest.raises(ValueError, match="Symbol must be uppercase"):
-            sample_signal_calculator._validate_symbol("spy")
+            validate_symbol("spy")
 
         with pytest.raises(ValueError, match="Symbol cannot be empty"):
-            sample_signal_calculator._validate_symbol("")
+            validate_symbol("")
 
         with pytest.raises(ValueError, match="Symbol too long"):
-            sample_signal_calculator._validate_symbol("A" * 11)
+            validate_symbol("A" * 11)
 
         with pytest.raises(ValueError, match="contains invalid characters"):
-            sample_signal_calculator._validate_symbol("SPY@123")
+            validate_symbol("SPY@123")
 
     def test_get_tradable_universe_invalid_input(self, sample_signal_calculator):
         """Test tradable universe with invalid input."""
@@ -288,10 +292,10 @@ class TestSignalCalculator:
         )
 
         mock_data_manager.get_google_trends.side_effect = (
-            lambda keyword, **kwargs: pd.DataFrame(
+            lambda keyword, **kwargs: (pd.DataFrame(
                 {"value": [75, 78, 80, 82, 85] * 20},
                 index=pd.date_range("2023-01-01", periods=100),
-            )
+            ), 0.0)  # Return tuple (DataFrame, latency)
         )
 
         tradable_assets = ["SPY"]
@@ -337,10 +341,10 @@ class TestSignalCalculator:
         )
 
         mock_data_manager.get_google_trends.side_effect = (
-            lambda keyword, **kwargs: pd.DataFrame(
+            lambda keyword, **kwargs: (pd.DataFrame(
                 {"value": [75, 78, 80, 82, 85] * 20},
                 index=pd.date_range("2023-01-01", periods=100),
-            )
+            ), 0.0)  # Return tuple (DataFrame, latency)
         )
 
         tradable_assets = ["SPY"]
@@ -373,10 +377,10 @@ class TestSignalCalculator:
         )
 
         mock_data_manager.get_google_trends.side_effect = (
-            lambda keyword, **kwargs: pd.DataFrame(
+            lambda keyword, **kwargs: (pd.DataFrame(
                 {"value": [75, 78, 80, 82, 85] * 20},
                 index=pd.date_range("2023-01-01", periods=100),
-            )
+            ), 0.0)  # Return tuple (DataFrame, latency)
         )
 
         tradable_assets = ["SPY"]

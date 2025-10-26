@@ -35,6 +35,7 @@ pytrends>=4.9.2
 # sqlite3 is built-in with Python - no installation needed
 
 # API clients
+ccxt>=4.0.0
 requests>=2.31.0
 responses>=0.24.0
 
