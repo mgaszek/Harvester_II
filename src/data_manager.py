@@ -61,6 +61,9 @@ class DataManager:
         self._trends_cache = TTLCache(maxsize=50, ttl=3600)  # 1 hour
         self._macro_cache = TTLCache(maxsize=20, ttl=1800)  # 30 minutes
 
+        # TTL Cache for Bayesian posterior probabilities (5min TTL for performance)
+        self._posterior_cache = TTLCache(maxsize=50, ttl=300)  # 5 minutes
+
     def _init_yfinance(self) -> None:
         """Initialize Yahoo Finance client."""
         try:
@@ -142,7 +145,7 @@ class DataManager:
                 data = ticker.history(period=period)
 
                 if data.empty:
-                    self.logger.warning(f"No data returned for {symbol}")
+                    self.logger.warning("No data returned for %s", symbol)
                     return pd.DataFrame()
 
                 # Cache the data
@@ -150,21 +153,21 @@ class DataManager:
                 self._save_to_db("price_cache", symbol, data)
 
                 self.logger.info(
-                    f"Fetched price data for {symbol}: {len(data)} records"
+                    "Fetched price data for %s: %d records", symbol, len(data)
                 )
                 return data
 
             self.logger.error("Yahoo Finance not available")
             return pd.DataFrame()
 
-        except (requests.RequestException, ConnectionError) as e:
-            self.logger.error(f"Network error fetching price data for {symbol}: {e}")
+        except (requests.RequestException, ConnectionError):
+            self.logger.exception("Network error fetching price data for %s", symbol)
             return pd.DataFrame()
-        except ValueError as e:
-            self.logger.error(f"Invalid data received for {symbol}: {e}")
+        except ValueError:
+            self.logger.exception("Invalid data received for %s", symbol)
             return pd.DataFrame()
-        except Exception as e:
-            self.logger.error(f"Unexpected error fetching price data for {symbol}: {e}")
+        except Exception:
+            self.logger.exception("Unexpected error fetching price data for %s", symbol)
             return pd.DataFrame()
 
     async def get_price_data_async(
@@ -196,7 +199,7 @@ class DataManager:
                 data = await asyncio.to_thread(ticker.history, period=period)
 
                 if data.empty:
-                    self.logger.warning(f"No data returned for {symbol}")
+                    self.logger.warning("No data returned for %s", symbol)
                     return pd.DataFrame()
 
                 # Cache the data
@@ -204,21 +207,21 @@ class DataManager:
                 self._save_to_db("price_cache", symbol, data)
 
                 self.logger.info(
-                    f"Async fetched price data for {symbol}: {len(data)} records"
+                    "Async fetched price data for %s: %d records", symbol, len(data)
                 )
                 return data
 
             self.logger.error("Yahoo Finance not available")
             return pd.DataFrame()
 
-        except (requests.RequestException, ConnectionError) as e:
-            self.logger.error(f"Network error fetching price data for {symbol}: {e}")
+        except (requests.RequestException, ConnectionError):
+            self.logger.exception("Network error fetching price data for %s", symbol)
             return pd.DataFrame()
-        except ValueError as e:
-            self.logger.error(f"Invalid data received for {symbol}: {e}")
+        except ValueError:
+            self.logger.exception("Invalid data received for %s", symbol)
             return pd.DataFrame()
-        except Exception as e:
-            self.logger.error(f"Unexpected error fetching price data for {symbol}: {e}")
+        except Exception:
+            self.logger.exception("Unexpected error fetching price data for %s", symbol)
             return pd.DataFrame()
 
     def get_google_trends(
@@ -595,6 +598,34 @@ class DataManager:
         if self.db_manager:
             self.db_manager.close()
             self.logger.info("Database connection closed")
+
+    def get_cached_posterior(self, features_key: str) -> dict | None:
+        """
+        Get cached Bayesian posterior probabilities.
+
+        Args:
+            features_key: String key representing the feature vector
+
+        Returns:
+            Cached posterior data or None if not cached
+        """
+        return self._posterior_cache.get(features_key)
+
+    def cache_posterior(self, features_key: str, posterior_data: dict) -> None:
+        """
+        Cache Bayesian posterior probabilities.
+
+        Args:
+            features_key: String key representing the feature vector
+            posterior_data: Posterior probability data to cache
+        """
+        self._posterior_cache[features_key] = posterior_data
+        self.logger.debug(f"Cached posterior for key: {features_key}")
+
+    def clear_posterior_cache(self) -> None:
+        """Clear the posterior probability cache."""
+        self._posterior_cache.clear()
+        self.logger.info("Posterior cache cleared")
 
 
 # DataManager is now created via dependency injection in di.py

@@ -26,7 +26,9 @@ def create_signal_calculator(
     config: Config, data_manager: DataManager
 ) -> SignalCalculator:
     """Create and return a SignalCalculator instance."""
-    bayesian_state_machine = get_bayesian_state_machine(config._config_data)
+    bayesian_state_machine = get_bayesian_state_machine(
+        config._config_data, data_manager
+    )
     return SignalCalculator(config, data_manager, bayesian_state_machine)
 
 

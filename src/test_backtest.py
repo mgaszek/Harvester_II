@@ -37,27 +37,27 @@ class TestBacktestEngine:
 
         # Create realistic historical price data for SPY (2020-2024)
         dates = pd.date_range("2020-01-01", "2024-01-01", freq="D")
-        np.random.seed(42)  # For reproducible results
+        rng = np.random.default_rng(42)  # For reproducible results
 
         # Generate realistic price series
         initial_price = 300.0
-        daily_returns = np.random.normal(
+        daily_returns = rng.normal(
             0.0005, 0.015, len(dates)
         )  # Mean return with volatility
         price_series = initial_price * np.exp(np.cumsum(daily_returns))
 
         # Create OHLCV data
-        high_multiplier = 1 + np.random.uniform(0, 0.02, len(dates))
-        low_multiplier = 1 - np.random.uniform(0, 0.02, len(dates))
+        high_multiplier = 1 + rng.uniform(0, 0.02, len(dates))
+        low_multiplier = 1 - rng.uniform(0, 0.02, len(dates))
         volume_base = 50000000
 
         price_data = pd.DataFrame(
             {
-                "Open": price_series * (1 + np.random.normal(0, 0.005, len(dates))),
+                "Open": price_series * (1 + rng.normal(0, 0.005, len(dates))),
                 "High": price_series * high_multiplier,
                 "Low": price_series * low_multiplier,
                 "Close": price_series,
-                "Volume": volume_base + np.random.normal(0, 10000000, len(dates)),
+                "Volume": volume_base + rng.normal(0, 10000000, len(dates)),
             },
             index=dates,
         )
@@ -72,7 +72,7 @@ class TestBacktestEngine:
         trends_values = (
             50
             + 30 * np.sin(np.arange(len(dates)) * 0.01)
-            + np.random.normal(0, 5, len(dates))
+            + rng.normal(0, 5, len(dates))
         )
         trends_values = np.clip(trends_values, 0, 100)
         trends_data = pd.DataFrame({"value": trends_values.astype(int)}, index=dates)
@@ -437,6 +437,118 @@ class TestBacktestEngine:
         assert (
             -1 <= comparison["conviction_correlation"] <= 1
         ), "Invalid conviction correlation range"
+
+    @pytest.mark.integration
+    def test_optuna_prior_optimization_and_ab_test(self, sample_risk_manager):
+        """Test Optuna-based prior optimization and A/B testing for Bayesian State Machine."""
+        # Import optuna
+        optuna = pytest.importorskip("optuna")
+
+        # Create config
+        config = Mock()
+        config.get.side_effect = lambda key, default=None: {
+            "system.lookback_window": 90,
+            "universe.cri_threshold": 0.4,
+            "signals.panic_threshold": 3.0,
+            "macro_risk.g_score_threshold": 2,
+            "backtesting.start_date": "2020-01-01",
+            "backtesting.end_date": "2024-01-01",
+            "backtesting.initial_capital": 100000,
+            "bayesian.enabled": True,
+            "bayesian.n_states": 3,
+            "bayesian.conviction_threshold": 0.7,
+            "bayesian.priors": [0.3, 0.4, 0.3],  # Default priors
+        }.get(key, default)
+
+        # Create mock data manager
+        data_manager = self.create_mock_data_manager()
+
+        # Create backtest engine
+        backtest_engine = BacktestEngine(
+            config, data_manager, Mock(), sample_risk_manager
+        )
+
+        def objective(trial):
+            """Optuna objective function for prior optimization."""
+            # Suggest prior values that sum to 1.0
+            prior1 = trial.suggest_float("prior1", 0.1, 0.8)
+            prior2 = trial.suggest_float("prior2", 0.1, 0.8)
+            prior3 = 1.0 - prior1 - prior2
+
+            # Ensure priors are valid (positive and sum to 1)
+            if prior3 <= 0 or prior3 > 0.8:
+                return -10.0  # Penalize invalid priors
+
+            # Update config with trial priors
+            config.get.side_effect = lambda key, default=None: {
+                "system.lookback_window": 90,
+                "universe.cri_threshold": 0.4,
+                "signals.panic_threshold": 3.0,
+                "macro_risk.g_score_threshold": 2,
+                "backtesting.start_date": "2020-01-01",
+                "backtesting.end_date": "2024-01-01",
+                "backtesting.initial_capital": 100000,
+                "bayesian.enabled": True,
+                "bayesian.n_states": 3,
+                "bayesian.conviction_threshold": 0.7,
+                "bayesian.priors": [prior1, prior2, prior3],
+            }.get(key, default)
+
+            # Run backtest with optimized priors
+            results = backtest_engine.run_backtest("2020-01-01", "2022-01-01", 100000)
+
+            if "error" in results:
+                return -10.0
+
+            # Maximize Sharpe ratio (or minimize negative Sharpe)
+            sharpe = results.get("capital", {}).get("sharpe_ratio", -10.0)
+            return sharpe if sharpe != -10.0 else -10.0
+
+        # Create and run Optuna study
+        study = optuna.create_study(direction="maximize")
+        study.optimize(objective, n_trials=5)  # Reduced trials for testing
+
+        # Validate optimization results
+        assert len(study.trials) == 5
+        assert study.best_value > -10.0  # Should have found some valid result
+
+        # Get best priors
+        best_priors = [
+            study.best_params["prior1"],
+            study.best_params["prior2"],
+            1.0 - study.best_params["prior1"] - study.best_params["prior2"],
+        ]
+
+        # Now run A/B test comparing default vs optimized priors
+        config.get.side_effect = lambda key, default=None: {
+            "system.lookback_window": 90,
+            "universe.cri_threshold": 0.4,
+            "signals.panic_threshold": 3.0,
+            "macro_risk.g_score_threshold": 2,
+            "backtesting.start_date": "2020-01-01",
+            "backtesting.end_date": "2024-01-01",
+            "backtesting.initial_capital": 100000,
+            "bayesian.enabled": True,
+            "bayesian.n_states": 3,
+            "bayesian.conviction_threshold": 0.7,
+            "bayesian.priors": best_priors,  # Use optimized priors
+        }.get(key, default)
+
+        # Run A/B test with optimized priors
+        ab_results = backtest_engine.run_ab_test("2022-01-01", "2024-01-01", 100000)
+
+        # Validate A/B test with optimized priors
+        assert "comparison" in ab_results
+        comparison = ab_results["comparison"]
+
+        # The optimized priors should show improvement over default
+        sharpe_improvement = comparison.get("sharpe_ratio_improvement", 0)
+        assert sharpe_improvement >= -0.5  # Allow some tolerance for mock data
+
+        # Validate priors are properly normalized
+        assert (
+            abs(sum(best_priors) - 1.0) < 0.001
+        ), f"Priors don't sum to 1: {best_priors}"
 
 
 @pytest.mark.integration

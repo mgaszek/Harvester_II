@@ -1,10 +1,10 @@
 # Harvester II Trading System
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-green.svg)](#testing)
-[![Code Style](https://img.shields.io/badge/code%20style-black-black.svg)](https://github.com/psf/black)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/your-username/harvester-ii/workflows/CI/badge.svg)](https://github.com/your-username/harvester-ii/actions)
+[![Coverage](https://codecov.io/gh/your-username/harvester-ii/branch/develop/graph/badge.svg)](https://codecov.io/gh/your-username/harvester-ii)
+[![Code Style](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 A sophisticated volatility and attention-driven trading system designed to capture market extremes using crowd psychology and technical analysis. Features enterprise-grade logging, monitoring, and performance optimizations for production deployment.
 
@@ -105,6 +105,61 @@ cd src && pytest
 - **A/B Testing Framework**: Automated performance comparison with statistical validation
 - **Conviction Monitoring**: Real-time Prometheus metrics and structured logging
 - **Robust Fallback**: Multi-level degradation (HMM → rules → default 0.5 conviction)
+- **Performance Caching**: TTL-cached posterior probabilities (5min) for improved inference speed
+- **Edge Hardening**: Buffer trimming (>100 samples) and KL-divergence low-evidence detection
+
+#### Prior Optimization Example
+
+The Bayesian State Machine optimizes market state priors using Optuna:
+
+```python
+# Default priors: [0.3, 0.4, 0.3] (calm/volatile/panic)
+# Optimized priors: dynamically tuned for maximum Sharpe ratio
+
+study = optuna.create_study(direction="maximize")
+study.optimize(objective_function, n_trials=20)
+
+# Best priors ensure probabilities sum to 1.0
+best_priors = [0.25, 0.35, 0.40]  # Adapted to current market conditions
+```
+
+#### Decay Mathematics
+
+Conviction decay follows exponential decay with evidence accumulation:
+
+```
+conviction(t) = conviction(t-1) × exp(-λ × time_since_last_update)
+
+Where:
+- λ (decay_rate) = 0.1 (configurable)
+- time_since_last_update in trading days
+- conviction resets to 0.5 when evidence threshold is met
+```
+
+#### KL-Divergence Edge Detection
+
+Low-evidence scenarios trigger fallback using KL-divergence:
+
+```python
+# KL(P||Q) where P=observations, Q=model states
+kl_divergence = min([KL_divergence(obs_dist, state_dist) for state_dist in model_states])
+
+if kl_divergence < 0.1:  # Low evidence threshold
+    return fallback_assessment()  # Rule-based logic
+```
+
+#### Performance Caching
+
+Posterior probabilities are cached with 5-minute TTL:
+
+```python
+# Cache key: rounded feature vector string
+features_key = "2.00,1.50,2.50,2.00,-0.02"
+cached_result = cache.get(features_key)
+
+if cached_result:
+    return cached_result  # Skip expensive HMM inference
+```
 
 ### Performance & Scalability
 - **Async Data Fetching**: Concurrent API calls with aiohttp for improved speed
