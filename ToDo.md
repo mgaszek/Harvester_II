@@ -37,5 +37,3 @@ Updated October 26, 2025: Infused with the Inquisition's rites. Numbered for tra
 9. **Add Advanced Features** (Low, 10-20 hours) [ ]  
    Ccxt multi-exchange; webhooks/Plotly reports; GitHub Actions CI.  
    - Approach: data_manager.py integrate; risk_manager.py alerts; .github/workflows.
-
-The golem stirs—light the fire with Rite #6 (Bayesian soul) for quick wins. What's your first incantation: Code for the State Machine, or a PR scaffold? Let's ascend.
