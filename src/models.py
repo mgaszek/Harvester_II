@@ -3,24 +3,35 @@ SQLAlchemy models for Harvester II database.
 Provides ORM models and schema validation for portfolio and data caching.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, ForeignKey, Index
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from sqlalchemy import MetaData, inspect
-from sqlalchemy.sql import func
-from pathlib import Path
-import logging
-from typing import Optional, Dict, Any
 from datetime import datetime
+import logging
 import os
+from pathlib import Path
+
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    create_engine,
+    inspect,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
+
 # Data Manager Models (for caching)
 class PriceCache(Base):
     """Price data cache table."""
-    __tablename__ = 'price_cache'
+
+    __tablename__ = "price_cache"
 
     symbol = Column(String(20), primary_key=True)
     date = Column(String(10), primary_key=True)
@@ -32,14 +43,15 @@ class PriceCache(Base):
     timestamp = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index('idx_price_symbol_date', 'symbol', 'date'),
-        Index('idx_price_timestamp', 'timestamp'),
+        Index("idx_price_symbol_date", "symbol", "date"),
+        Index("idx_price_timestamp", "timestamp"),
     )
 
 
 class TrendsCache(Base):
     """Google Trends data cache table."""
-    __tablename__ = 'trends_cache'
+
+    __tablename__ = "trends_cache"
 
     keyword = Column(String(100), primary_key=True)
     date = Column(String(10), primary_key=True)
@@ -47,14 +59,15 @@ class TrendsCache(Base):
     timestamp = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index('idx_trends_keyword_date', 'keyword', 'date'),
-        Index('idx_trends_timestamp', 'timestamp'),
+        Index("idx_trends_keyword_date", "keyword", "date"),
+        Index("idx_trends_timestamp", "timestamp"),
     )
 
 
 class MacroCache(Base):
     """Macro indicators cache table."""
-    __tablename__ = 'macro_cache'
+
+    __tablename__ = "macro_cache"
 
     indicator = Column(String(20), primary_key=True)
     date = Column(String(10), primary_key=True)
@@ -62,15 +75,16 @@ class MacroCache(Base):
     timestamp = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index('idx_macro_indicator_date', 'indicator', 'date'),
-        Index('idx_macro_timestamp', 'timestamp'),
+        Index("idx_macro_indicator_date", "indicator", "date"),
+        Index("idx_macro_timestamp", "timestamp"),
     )
 
 
 # Portfolio Manager Models
 class Position(Base):
     """Portfolio positions table."""
-    __tablename__ = 'positions'
+
+    __tablename__ = "positions"
 
     symbol = Column(String(20), primary_key=True)
     shares = Column(Integer, nullable=False)
@@ -83,17 +97,18 @@ class Position(Base):
     g_score = Column(Float)
     position_value = Column(Float)
     risk_amount = Column(Float)
-    status = Column(String(20), default='open')  # 'open', 'closed', 'pending'
+    status = Column(String(20), default="open")  # 'open', 'closed', 'pending'
 
     __table_args__ = (
-        Index('idx_position_status', 'status'),
-        Index('idx_position_entry_time', 'entry_time'),
+        Index("idx_position_status", "status"),
+        Index("idx_position_entry_time", "entry_time"),
     )
 
 
 class Order(Base):
     """Trading orders table."""
-    __tablename__ = 'orders'
+
+    __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     symbol = Column(String(20), nullable=False)
@@ -101,21 +116,22 @@ class Order(Base):
     shares = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
     order_time = Column(DateTime, nullable=False, default=datetime.utcnow)
-    status = Column(String(20), default='pending')  # 'pending', 'filled', 'cancelled'
-    order_type = Column(String(20), default='market')  # 'market', 'limit', etc.
+    status = Column(String(20), default="pending")  # 'pending', 'filled', 'cancelled'
+    order_type = Column(String(20), default="market")  # 'market', 'limit', etc.
     fill_price = Column(Float)
     fill_time = Column(DateTime)
 
     __table_args__ = (
-        Index('idx_order_symbol', 'symbol'),
-        Index('idx_order_status', 'status'),
-        Index('idx_order_time', 'order_time'),
+        Index("idx_order_symbol", "symbol"),
+        Index("idx_order_status", "status"),
+        Index("idx_order_time", "order_time"),
     )
 
 
 class TradeHistory(Base):
     """Trade history table."""
-    __tablename__ = 'trade_history'
+
+    __tablename__ = "trade_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     symbol = Column(String(20), nullable=False)
@@ -131,10 +147,10 @@ class TradeHistory(Base):
     side = Column(String(10), nullable=False)
 
     __table_args__ = (
-        Index('idx_trade_symbol', 'symbol'),
-        Index('idx_trade_entry_time', 'entry_time'),
-        Index('idx_trade_exit_time', 'exit_time'),
-        Index('idx_trade_pnl', 'pnl'),
+        Index("idx_trade_symbol", "symbol"),
+        Index("idx_trade_entry_time", "entry_time"),
+        Index("idx_trade_exit_time", "exit_time"),
+        Index("idx_trade_pnl", "pnl"),
     )
 
 
@@ -160,25 +176,31 @@ class DatabaseManager:
                 from sqlcipher3 import dbapi2 as sqlcipher
 
                 # Get encryption key from environment variable
-                key = os.getenv('DATABASE_ENCRYPTION_KEY', '')
+                key = os.getenv("DATABASE_ENCRYPTION_KEY", "")
                 if not key:
-                    logger.warning("DATABASE_ENCRYPTION_KEY not set, falling back to standard SQLite")
-                    self.engine = create_engine(f'sqlite:///{db_path}', echo=echo)
+                    logger.warning(
+                        "DATABASE_ENCRYPTION_KEY not set, falling back to standard SQLite"
+                    )
+                    self.engine = create_engine(f"sqlite:///{db_path}", echo=echo)
                 else:
                     # Create SQLCipher URL
-                    url = make_url(f'sqlite:///{db_path}')
-                    url.query = {'key': key}
+                    url = make_url(f"sqlite:///{db_path}")
+                    url.query = {"key": key}
 
                     self.engine = create_engine(url, echo=echo, module=sqlcipher)
                     logger.info("Using encrypted database with SQLCipher")
 
             except ImportError:
-                logger.warning("sqlcipher3 package not available, falling back to standard SQLite")
-                self.engine = create_engine(f'sqlite:///{db_path}', echo=echo)
+                logger.warning(
+                    "sqlcipher3 package not available, falling back to standard SQLite"
+                )
+                self.engine = create_engine(f"sqlite:///{db_path}", echo=echo)
         else:
-            self.engine = create_engine(f'sqlite:///{db_path}', echo=echo)
+            self.engine = create_engine(f"sqlite:///{db_path}", echo=echo)
 
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
 
     def create_tables(self) -> None:
         """Create all database tables."""
@@ -204,8 +226,12 @@ class DatabaseManager:
 
             # Check required tables exist
             required_tables = [
-                'price_cache', 'trends_cache', 'macro_cache',
-                'positions', 'orders', 'trade_history'
+                "price_cache",
+                "trends_cache",
+                "macro_cache",
+                "positions",
+                "orders",
+                "trade_history",
             ]
 
             existing_tables = inspector.get_table_names()
@@ -239,10 +265,19 @@ class DatabaseManager:
     def _validate_price_cache_schema(self, inspector) -> bool:
         """Validate price_cache table schema."""
         try:
-            columns = inspector.get_columns('price_cache')
-            column_names = [col['name'] for col in columns]
+            columns = inspector.get_columns("price_cache")
+            column_names = [col["name"] for col in columns]
 
-            required_columns = ['symbol', 'date', 'open', 'high', 'low', 'close', 'volume', 'timestamp']
+            required_columns = [
+                "symbol",
+                "date",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "timestamp",
+            ]
             for col in required_columns:
                 if col not in column_names:
                     logger.error(f"price_cache missing required column: {col}")
@@ -256,10 +291,10 @@ class DatabaseManager:
     def _validate_trends_cache_schema(self, inspector) -> bool:
         """Validate trends_cache table schema."""
         try:
-            columns = inspector.get_columns('trends_cache')
-            column_names = [col['name'] for col in columns]
+            columns = inspector.get_columns("trends_cache")
+            column_names = [col["name"] for col in columns]
 
-            required_columns = ['keyword', 'date', 'value', 'timestamp']
+            required_columns = ["keyword", "date", "value", "timestamp"]
             for col in required_columns:
                 if col not in column_names:
                     logger.error(f"trends_cache missing required column: {col}")
@@ -273,10 +308,10 @@ class DatabaseManager:
     def _validate_macro_cache_schema(self, inspector) -> bool:
         """Validate macro_cache table schema."""
         try:
-            columns = inspector.get_columns('macro_cache')
-            column_names = [col['name'] for col in columns]
+            columns = inspector.get_columns("macro_cache")
+            column_names = [col["name"] for col in columns]
 
-            required_columns = ['indicator', 'date', 'value', 'timestamp']
+            required_columns = ["indicator", "date", "value", "timestamp"]
             for col in required_columns:
                 if col not in column_names:
                     logger.error(f"macro_cache missing required column: {col}")
@@ -290,10 +325,17 @@ class DatabaseManager:
     def _validate_positions_schema(self, inspector) -> bool:
         """Validate positions table schema."""
         try:
-            columns = inspector.get_columns('positions')
-            column_names = [col['name'] for col in columns]
+            columns = inspector.get_columns("positions")
+            column_names = [col["name"] for col in columns]
 
-            required_columns = ['symbol', 'shares', 'entry_price', 'entry_time', 'side', 'status']
+            required_columns = [
+                "symbol",
+                "shares",
+                "entry_price",
+                "entry_time",
+                "side",
+                "status",
+            ]
             for col in required_columns:
                 if col not in column_names:
                     logger.error(f"positions missing required column: {col}")
@@ -307,10 +349,18 @@ class DatabaseManager:
     def _validate_orders_schema(self, inspector) -> bool:
         """Validate orders table schema."""
         try:
-            columns = inspector.get_columns('orders')
-            column_names = [col['name'] for col in columns]
+            columns = inspector.get_columns("orders")
+            column_names = [col["name"] for col in columns]
 
-            required_columns = ['id', 'symbol', 'side', 'shares', 'price', 'order_time', 'status']
+            required_columns = [
+                "id",
+                "symbol",
+                "side",
+                "shares",
+                "price",
+                "order_time",
+                "status",
+            ]
             for col in required_columns:
                 if col not in column_names:
                     logger.error(f"orders missing required column: {col}")
@@ -324,10 +374,21 @@ class DatabaseManager:
     def _validate_trade_history_schema(self, inspector) -> bool:
         """Validate trade_history table schema."""
         try:
-            columns = inspector.get_columns('trade_history')
-            column_names = [col['name'] for col in columns]
+            columns = inspector.get_columns("trade_history")
+            column_names = [col["name"] for col in columns]
 
-            required_columns = ['id', 'symbol', 'entry_price', 'exit_price', 'shares', 'entry_time', 'exit_time', 'pnl', 'pnl_percentage', 'side']
+            required_columns = [
+                "id",
+                "symbol",
+                "entry_price",
+                "exit_price",
+                "shares",
+                "entry_time",
+                "exit_time",
+                "pnl",
+                "pnl_percentage",
+                "side",
+            ]
             for col in required_columns:
                 if col not in column_names:
                     logger.error(f"trade_history missing required column: {col}")
@@ -349,8 +410,8 @@ class DatabaseManager:
 
 
 # Global database managers
-_data_db_manager: Optional[DatabaseManager] = None
-_portfolio_db_manager: Optional[DatabaseManager] = None
+_data_db_manager: DatabaseManager | None = None
+_portfolio_db_manager: DatabaseManager | None = None
 
 
 def get_data_db_manager() -> DatabaseManager:
@@ -358,12 +419,13 @@ def get_data_db_manager() -> DatabaseManager:
     global _data_db_manager
     if _data_db_manager is None:
         from config import get_config
+
         config = get_config()
 
         db_path = "data/harvester_ii.db"
         Path(db_path).parent.mkdir(exist_ok=True)
 
-        encrypted = config.get('database.encrypted', False)
+        encrypted = config.get("database.encrypted", False)
         _data_db_manager = DatabaseManager(db_path, encrypted=encrypted)
         _data_db_manager.create_tables()
         if not _data_db_manager.validate_schema():
@@ -376,12 +438,13 @@ def get_portfolio_db_manager() -> DatabaseManager:
     global _portfolio_db_manager
     if _portfolio_db_manager is None:
         from config import get_config
+
         config = get_config()
 
         db_path = "data/portfolio.db"
         Path(db_path).parent.mkdir(exist_ok=True)
 
-        encrypted = config.get('database.encrypted', False)
+        encrypted = config.get("database.encrypted", False)
         _portfolio_db_manager = DatabaseManager(db_path, encrypted=encrypted)
         _portfolio_db_manager.create_tables()
         if not _portfolio_db_manager.validate_schema():

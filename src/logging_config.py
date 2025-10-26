@@ -10,10 +10,12 @@ from typing import Any
 
 try:
     from loguru import logger
+
     LOGURU_AVAILABLE = True
 except ImportError:
     LOGURU_AVAILABLE = False
     import logging
+
     logger = logging.getLogger(__name__)
 
 # Global configuration
@@ -31,7 +33,7 @@ def setup_logging(
     max_size: str = LOG_MAX_SIZE,
     retention: str = LOG_RETENTION,
     enable_console: bool = True,
-    enable_file: bool = True
+    enable_file: bool = True,
 ) -> None:
     """
     Setup standardized logging configuration for Harvester II.
@@ -48,9 +50,10 @@ def setup_logging(
     if not LOGURU_AVAILABLE:
         # Fallback to standard logging if loguru not available
         import logging
+
         logging.basicConfig(
             level=getattr(logging, level.upper(), logging.INFO),
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
         print("Warning: Loguru not available, using standard logging")
         return
@@ -79,7 +82,7 @@ def setup_logging(
             format=console_format,
             level=level.upper(),
             serialize=serialize,
-            colorize=not json_format  # Disable colors in JSON mode
+            colorize=not json_format,  # Disable colors in JSON mode
         )
 
     # Configure file handler
@@ -98,12 +101,18 @@ def setup_logging(
             rotation=max_size,
             retention=retention,
             serialize=serialize,
-            encoding="utf-8"
+            encoding="utf-8",
         )
 
     # Log the configuration
-    logger.info("Logging system initialized", level=level, json_format=json_format,
-               log_file=log_file, max_size=max_size, retention=retention)
+    logger.info(
+        "Logging system initialized",
+        level=level,
+        json_format=json_format,
+        log_file=log_file,
+        max_size=max_size,
+        retention=retention,
+    )
 
 
 def get_logger(name: str = None) -> Any:
@@ -119,6 +128,7 @@ def get_logger(name: str = None) -> Any:
     if LOGURU_AVAILABLE:
         return logger
     import logging
+
     return logging.getLogger(name or __name__)
 
 
@@ -141,17 +151,24 @@ def log_system_status(status: dict[str, Any], level: str = "info") -> None:
     risk = status.get("risk_management", {})
     macro = status.get("macro_risk", {})
 
-    log_func("System status update",
-             equity=round(portfolio.get("current_equity", 0), 2),
-             drawdown=round(risk.get("current_drawdown", 0), 4),
-             positions=portfolio.get("open_positions", 0),
-             g_score=round(macro.get("g_score", 0), 1),
-             conviction=getattr(status, "_last_conviction", 0.5))
+    log_func(
+        "System status update",
+        equity=round(portfolio.get("current_equity", 0), 2),
+        drawdown=round(risk.get("current_drawdown", 0), 4),
+        positions=portfolio.get("open_positions", 0),
+        g_score=round(macro.get("g_score", 0), 1),
+        conviction=getattr(status, "_last_conviction", 0.5),
+    )
 
 
-def log_trading_signal(symbol: str, signal_type: str, conviction: float,
-                      market_state: str = None, assessment_method: str = None,
-                      level: str = "info") -> None:
+def log_trading_signal(
+    symbol: str,
+    signal_type: str,
+    conviction: float,
+    market_state: str = None,
+    assessment_method: str = None,
+    level: str = "info",
+) -> None:
     """
     Log trading signal information.
 
@@ -165,16 +182,19 @@ def log_trading_signal(symbol: str, signal_type: str, conviction: float,
     """
     log_func = getattr(harvester_logger, level.lower(), harvester_logger.info)
 
-    log_func("Trading signal generated",
-             symbol=symbol,
-             signal_type=signal_type,
-             conviction=round(conviction, 3),
-             market_state=market_state,
-             assessment_method=assessment_method)
+    log_func(
+        "Trading signal generated",
+        symbol=symbol,
+        signal_type=signal_type,
+        conviction=round(conviction, 3),
+        market_state=market_state,
+        assessment_method=assessment_method,
+    )
 
 
-def log_performance_metrics(metrics: dict[str, Any], period: str = "backtest",
-                           level: str = "info") -> None:
+def log_performance_metrics(
+    metrics: dict[str, Any], period: str = "backtest", level: str = "info"
+) -> None:
     """
     Log performance metrics in structured format.
 
@@ -188,13 +208,15 @@ def log_performance_metrics(metrics: dict[str, Any], period: str = "backtest",
     capital = metrics.get("capital", {})
     trade_stats = metrics.get("trade_statistics", {})
 
-    log_func("Performance metrics",
-             period=period,
-             total_return=round(capital.get("total_return", 0), 4),
-             sharpe_ratio=round(capital.get("sharpe_ratio", 0), 3),
-             max_drawdown=round(capital.get("max_drawdown", 0), 4),
-             win_rate=round(capital.get("win_rate", 0), 3),
-             total_trades=trade_stats.get("total_trades", 0))
+    log_func(
+        "Performance metrics",
+        period=period,
+        total_return=round(capital.get("total_return", 0), 4),
+        sharpe_ratio=round(capital.get("sharpe_ratio", 0), 3),
+        max_drawdown=round(capital.get("max_drawdown", 0), 4),
+        win_rate=round(capital.get("win_rate", 0), 3),
+        total_trades=trade_stats.get("total_trades", 0),
+    )
 
 
 def log_bias_analysis(results: dict[str, Any], level: str = "warning") -> None:
@@ -217,10 +239,12 @@ def log_bias_analysis(results: dict[str, Any], level: str = "warning") -> None:
     survivorship = results.get("survivorship_bias", {})
     overfitting = results.get("overfitting", {})
 
-    log_func("Bias analysis summary",
-             look_ahead_detected=look_ahead.get("detected", False),
-             survivorship_detected=survivorship.get("detected", False),
-             overfitting_detected=overfitting.get("detected", False))
+    log_func(
+        "Bias analysis summary",
+        look_ahead_detected=look_ahead.get("detected", False),
+        survivorship_detected=survivorship.get("detected", False),
+        overfitting_detected=overfitting.get("detected", False),
+    )
 
 
 # Initialize logging on import

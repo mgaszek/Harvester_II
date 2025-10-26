@@ -4,31 +4,37 @@ Provides unified interface for pandas and polars operations.
 """
 
 import os
-from typing import Union, Dict, List, Any, Optional, Tuple
+from typing import Any, Union
+
 import numpy as np
 
 # Backend selection - can be controlled via environment variable
-DATA_BACKEND = os.getenv('HARVESTER_DATA_BACKEND', 'pandas').lower()
+DATA_BACKEND = os.getenv("HARVESTER_DATA_BACKEND", "pandas").lower()
 
 # Import backends conditionally
-if DATA_BACKEND == 'polars':
+if DATA_BACKEND == "polars":
     try:
         import polars as pl
+
         POLARS_AVAILABLE = True
     except ImportError:
         POLARS_AVAILABLE = False
         import pandas as pd
+
         pl = None
-        DATA_BACKEND = 'pandas'
+        DATA_BACKEND = "pandas"
 else:
     import pandas as pd
+
     POLARS_AVAILABLE = False
     pl = None
-    DATA_BACKEND = 'pandas'
+    DATA_BACKEND = "pandas"
 
 # Type aliases
-DataFrame = Union['pd.DataFrame', 'pl.DataFrame'] if POLARS_AVAILABLE else 'pd.DataFrame'
-Series = Union['pd.Series', 'pl.Series'] if POLARS_AVAILABLE else 'pd.Series'
+DataFrame = (
+    Union["pd.DataFrame", "pl.DataFrame"] if POLARS_AVAILABLE else "pd.DataFrame"
+)
+Series = Union["pd.Series", "pl.Series"] if POLARS_AVAILABLE else "pd.Series"
 
 
 class DataProcessor:
@@ -40,209 +46,190 @@ class DataProcessor:
     """
 
     @staticmethod
-    def create_dataframe(data: Dict[str, List[Any]], index: Optional[List[Any]] = None) -> DataFrame:
+    def create_dataframe(
+        data: dict[str, list[Any]], index: list[Any] | None = None
+    ) -> DataFrame:
         """Create a DataFrame from dictionary data."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             df = pl.DataFrame(data)
             if index is not None:
                 df = df.with_columns(pl.Series("index", index).alias("__index"))
-                df = df.select(["__index"] + [col for col in df.columns if col != "__index"])
+                df = df.select(
+                    ["__index"] + [col for col in df.columns if col != "__index"]
+                )
             return df
-        else:
-            return pd.DataFrame(data, index=index)
+        return pd.DataFrame(data, index=index)
 
     @staticmethod
-    def create_series(data: List[Any], index: Optional[List[Any]] = None,
-                     name: Optional[str] = None) -> Series:
+    def create_series(
+        data: list[Any], index: list[Any] | None = None, name: str | None = None
+    ) -> Series:
         """Create a Series from data."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return pl.Series(name or "series", data, index=index)
-        else:
-            return pd.Series(data, index=index, name=name)
+        return pd.Series(data, index=index, name=name)
 
     @staticmethod
-    def date_range(start: str, end: str, freq: str = 'D') -> Series:
+    def date_range(start: str, end: str, freq: str = "D") -> Series:
         """Create a date range."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             # Polars date_range is different
             start_dt = pl.datetime(int(start[:4]), int(start[5:7]), int(start[8:10]))
             end_dt = pl.datetime(int(end[:4]), int(end[5:7]), int(end[8:10]))
             # For now, return a simple range - this would need more complex implementation
             return pl.Series("date_range", [])
-        else:
-            return pd.date_range(start=start, end=end, freq=freq)
+        return pd.date_range(start=start, end=end, freq=freq)
 
     @staticmethod
-    def concat(dfs: List[DataFrame], axis: int = 0) -> DataFrame:
+    def concat(dfs: list[DataFrame], axis: int = 0) -> DataFrame:
         """Concatenate DataFrames."""
-        if DATA_BACKEND == 'polars':
-            return pl.concat(dfs, how='vertical' if axis == 0 else 'horizontal')
-        else:
-            return pd.concat(dfs, axis=axis)
+        if DATA_BACKEND == "polars":
+            return pl.concat(dfs, how="vertical" if axis == 0 else "horizontal")
+        return pd.concat(dfs, axis=axis)
 
     @staticmethod
     def is_empty(df: DataFrame) -> bool:
         """Check if DataFrame is empty."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return len(df) == 0
-        else:
-            return df.empty
+        return df.empty
 
     @staticmethod
-    def dropna(df: DataFrame, axis: int = 0, how: str = 'any') -> DataFrame:
+    def dropna(df: DataFrame, axis: int = 0, how: str = "any") -> DataFrame:
         """Drop NA values."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return df.drop_nulls()
-        else:
-            return df.dropna(axis=axis, how=how)
+        return df.dropna(axis=axis, how=how)
 
     @staticmethod
     def pct_change(series, periods: int = 1):
         """Calculate percentage change."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             # Polars pct_change implementation
             return series.pct_change(periods=periods)
-        else:
-            return series.pct_change(periods=periods)
+        return series.pct_change(periods=periods)
 
     @staticmethod
     def rolling_mean(series: Series, window: int) -> Series:
         """Calculate rolling mean."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.rolling_mean(window_size=window)
-        else:
-            return series.rolling(window=window).mean()
+        return series.rolling(window=window).mean()
 
     @staticmethod
     def rolling_std(series, window: int):
         """Calculate rolling standard deviation."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             # Polars rolling std implementation
             return series.rolling_std(window_size=window)
-        else:
-            return series.rolling(window=window).std()
+        return series.rolling(window=window).std()
 
     @staticmethod
     def ewma(series: Series, span: int) -> Series:
         """Calculate exponentially weighted moving average."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             # Polars has limited EWMA support
             return series.ewm_mean(span=span)
-        else:
-            return series.ewm(span=span).mean()
+        return series.ewm(span=span).mean()
 
     @staticmethod
     def correlation(series1: Series, series2: Series) -> float:
         """Calculate correlation between two series."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series1.corr(series2)
-        else:
-            return series1.corr(series2)
+        return series1.corr(series2)
 
     @staticmethod
     def mean(series: Series) -> float:
         """Calculate mean of series."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.mean()
-        else:
-            return series.mean()
+        return series.mean()
 
     @staticmethod
     def std(series: Series) -> float:
         """Calculate standard deviation of series."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.std()
-        else:
-            return series.std()
+        return series.std()
 
     @staticmethod
     def quantile(series: Series, q: float) -> float:
         """Calculate quantile of series."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.quantile(q)
-        else:
-            return series.quantile(q)
+        return series.quantile(q)
 
     @staticmethod
     def max(series: Series) -> float:
         """Calculate maximum of series."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.max()
-        else:
-            return series.max()
+        return series.max()
 
     @staticmethod
     def min(series: Series) -> float:
         """Calculate minimum of series."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.min()
-        else:
-            return series.min()
+        return series.min()
 
     @staticmethod
     def to_numpy(series: Series) -> np.ndarray:
         """Convert series to numpy array."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.to_numpy()
-        else:
-            return series.to_numpy()
+        return series.to_numpy()
 
     @staticmethod
-    def to_dict(df: DataFrame) -> Dict[str, Any]:
+    def to_dict(df: DataFrame) -> dict[str, Any]:
         """Convert DataFrame to dictionary."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return df.to_dict(as_series=False)
-        else:
-            return df.to_dict()
+        return df.to_dict()
 
     @staticmethod
     def set_index(df: DataFrame, column: str) -> DataFrame:
         """Set index of DataFrame."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             # Polars handles indexing differently
             return df
-        else:
-            return df.set_index(column)
+        return df.set_index(column)
 
     @staticmethod
     def reset_index(df: DataFrame) -> DataFrame:
         """Reset index of DataFrame."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return df
-        else:
-            return df.reset_index()
+        return df.reset_index()
 
     @staticmethod
     def groupby(df: DataFrame, by: str) -> Any:
         """Group DataFrame by column."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return df.group_by(by)
-        else:
-            return df.groupby(by)
+        return df.groupby(by)
 
     @staticmethod
-    def merge(df1: DataFrame, df2: DataFrame, on: str, how: str = 'left') -> DataFrame:
+    def merge(df1: DataFrame, df2: DataFrame, on: str, how: str = "left") -> DataFrame:
         """Merge DataFrames."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return df1.join(df2, on=on, how=how)
-        else:
-            return pd.merge(df1, df2, on=on, how=how)
+        return pd.merge(df1, df2, on=on, how=how)
 
     @staticmethod
     def fillna(series: Series, value: Any) -> Series:
         """Fill NA values."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.fill_null(value)
-        else:
-            return series.fillna(value)
+        return series.fillna(value)
 
     @staticmethod
     def isna(series: Series) -> Series:
         """Check for NA values."""
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return series.is_null()
-        else:
-            return series.isna()
+        return series.isna()
 
     @staticmethod
     def get_backend() -> str:
@@ -256,13 +243,16 @@ class DataProcessor:
 
 
 # Convenience functions for common operations
-def create_dataframe(data: Dict[str, List[Any]], index: Optional[List[Any]] = None) -> DataFrame:
+def create_dataframe(
+    data: dict[str, list[Any]], index: list[Any] | None = None
+) -> DataFrame:
     """Create a DataFrame from dictionary data."""
     return DataProcessor.create_dataframe(data, index)
 
 
-def create_series(data: List[Any], index: Optional[List[Any]] = None,
-                 name: Optional[str] = None) -> Series:
+def create_series(
+    data: list[Any], index: list[Any] | None = None, name: str | None = None
+) -> Series:
     """Create a Series from data."""
     return DataProcessor.create_series(data, index, name)
 
@@ -289,17 +279,15 @@ def calculate_correlation(series1: Series, series2: Series) -> float:
     return DataProcessor.correlation(series1, series2)
 
 
-def calculate_returns(price_series: Series, method: str = 'simple') -> Series:
+def calculate_returns(price_series: Series, method: str = "simple") -> Series:
     """Calculate returns from price series."""
-    if method == 'log':
+    if method == "log":
         # Log returns: ln(P_t / P_{t-1})
-        if DATA_BACKEND == 'polars':
+        if DATA_BACKEND == "polars":
             return DataProcessor.pct_change(price_series).log()
-        else:
-            return np.log(price_series / price_series.shift(1))
-    else:
-        # Simple returns: (P_t - P_{t-1}) / P_{t-1}
-        return DataProcessor.pct_change(price_series)
+        return np.log(price_series / price_series.shift(1))
+    # Simple returns: (P_t - P_{t-1}) / P_{t-1}
+    return DataProcessor.pct_change(price_series)
 
 
 def calculate_volatility(returns: Series, annualize: bool = True) -> float:
@@ -316,8 +304,9 @@ def calculate_volatility(returns: Series, annualize: bool = True) -> float:
     return vol
 
 
-def calculate_sharpe_ratio(returns: Series, risk_free_rate: float = 0.0,
-                          annualize: bool = True) -> float:
+def calculate_sharpe_ratio(
+    returns: Series, risk_free_rate: float = 0.0, annualize: bool = True
+) -> float:
     """Calculate Sharpe ratio."""
     if DataProcessor.is_empty(returns):
         return 0.0
@@ -340,13 +329,12 @@ def calculate_max_drawdown(price_series: Series) -> float:
     if DataProcessor.is_empty(price_series):
         return 0.0
 
-    if DATA_BACKEND == 'polars':
+    if DATA_BACKEND == "polars":
         # Polars implementation
         cumulative = price_series.cum_max()
         drawdowns = (price_series - cumulative) / cumulative
         return float(drawdowns.min())
-    else:
-        # Pandas implementation
-        cumulative = price_series.expanding().max()
-        drawdowns = (price_series - cumulative) / cumulative
-        return float(drawdowns.min())
+    # Pandas implementation
+    cumulative = price_series.expanding().max()
+    drawdowns = (price_series - cumulative) / cumulative
+    return float(drawdowns.min())

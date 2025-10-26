@@ -4,22 +4,28 @@ Development Environment Setup Script for Harvester II.
 Sets up pre-commit hooks, installs development dependencies, and configures the development environment.
 """
 
-import subprocess
-import sys
-import os
 from pathlib import Path
+import subprocess  # nosec B404 - subprocess needed for development setup
+import sys
+
 
 def run_command(cmd, description):
     """Run a command and handle errors."""
     print(f"[*] {description}...")
     try:
-        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        # Split command into list for safer subprocess execution
+        if isinstance(cmd, str):
+            cmd = cmd.split()
+        result = subprocess.run(  # nosec B603 - safe command execution in controlled environment
+            cmd, check=True, capture_output=True, text=True
+        )
         print(f"[+] {description} completed successfully")
         return True
     except subprocess.CalledProcessError as e:
         print(f"[X] {description} failed:")
         print(f"Error: {e.stderr}")
         return False
+
 
 def main():
     """Main setup function."""
@@ -28,11 +34,15 @@ def main():
 
     # Check if we're in the right directory
     if not Path("pyproject.toml").exists():
-        print("[X] Error: pyproject.toml not found. Please run this script from the project root.")
+        print(
+            "[X] Error: pyproject.toml not found. Please run this script from the project root."
+        )
         sys.exit(1)
 
     # Install development dependencies
-    if not run_command("pip install -e .", "Installing Harvester II in development mode"):
+    if not run_command(
+        "pip install -e .", "Installing Harvester II in development mode"
+    ):
         sys.exit(1)
 
     # Install development dependencies
@@ -41,12 +51,16 @@ def main():
         "mypy>=1.11.0",
         "bandit>=1.7.0",
         "pre-commit>=3.0.0",
-        "commitizen>=3.29.0"
+        "commitizen>=3.29.0",
     ]
 
     print(f"[*] Installing development dependencies: {', '.join(dev_deps)}")
-    if not run_command(f"pip install {' '.join(dev_deps)}", "Installing development dependencies"):
-        print("[!] Warning: Some development dependencies may not have installed correctly")
+    if not run_command(
+        f"pip install {' '.join(dev_deps)}", "Installing development dependencies"
+    ):
+        print(
+            "[!] Warning: Some development dependencies may not have installed correctly"
+        )
         print("   You can install them manually with: pip install -r requirements.txt")
 
     # Install pre-commit hooks
@@ -59,7 +73,9 @@ def main():
 
     # Run initial pre-commit checks
     print("\n[*] Running initial code quality checks...")
-    if run_command("pre-commit run --all-files", "Running pre-commit checks on all files"):
+    if run_command(
+        "pre-commit run --all-files", "Running pre-commit checks on all files"
+    ):
         print("[+] All code quality checks passed!")
     else:
         print("[!] Some code quality checks failed")
@@ -91,6 +107,7 @@ def main():
     print("- make test: Run test suite")
     print("- make benchmark: Run performance benchmarks")
     print("- cz commit: Create conventional commit")
+
 
 if __name__ == "__main__":
     main()
