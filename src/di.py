@@ -3,13 +3,13 @@ Dependency Injection container for Harvester II.
 Provides factory functions for creating components with their dependencies injected.
 """
 
+from bayesian_state import get_bayesian_state_machine
 from config import Config
 from data_manager import DataManager
-from signals import SignalCalculator
-from risk_manager import RiskManager
-from portfolio import PortfolioManager
 from engine import TradingEngine
-from bayesian_state import get_bayesian_state_machine
+from portfolio import PortfolioManager
+from risk_manager import RiskManager
+from signals import SignalCalculator
 
 
 def create_config(config_path: str = "config.json") -> Config:
@@ -22,9 +22,13 @@ def create_data_manager(config: Config) -> DataManager:
     return DataManager(config)
 
 
-def create_signal_calculator(config: Config, data_manager: DataManager) -> SignalCalculator:
+def create_signal_calculator(
+    config: Config, data_manager: DataManager
+) -> SignalCalculator:
     """Create and return a SignalCalculator instance."""
-    bayesian_state_machine = get_bayesian_state_machine(config._config_data)
+    bayesian_state_machine = get_bayesian_state_machine(
+        config._config_data, data_manager
+    )
     return SignalCalculator(config, data_manager, bayesian_state_machine)
 
 
@@ -33,7 +37,12 @@ def create_risk_manager(config: Config) -> RiskManager:
     return RiskManager(config)
 
 
-def create_portfolio_manager(config: Config, risk_manager: RiskManager, data_manager: DataManager, signal_calculator: SignalCalculator) -> PortfolioManager:
+def create_portfolio_manager(
+    config: Config,
+    risk_manager: RiskManager,
+    data_manager: DataManager,
+    signal_calculator: SignalCalculator,
+) -> PortfolioManager:
     """Create and return a PortfolioManager instance."""
     return PortfolioManager(config, risk_manager, data_manager, signal_calculator)
 
@@ -44,9 +53,13 @@ def create_trading_engine(config_path: str = "config.json") -> TradingEngine:
     data_manager = create_data_manager(config)
     signal_calculator = create_signal_calculator(config, data_manager)
     risk_manager = create_risk_manager(config)
-    portfolio_manager = create_portfolio_manager(config, risk_manager, data_manager, signal_calculator)
+    portfolio_manager = create_portfolio_manager(
+        config, risk_manager, data_manager, signal_calculator
+    )
 
-    return TradingEngine(config, data_manager, signal_calculator, risk_manager, portfolio_manager)
+    return TradingEngine(
+        config, data_manager, signal_calculator, risk_manager, portfolio_manager
+    )
 
 
 def create_components(config_path: str = "config.json"):
@@ -55,14 +68,18 @@ def create_components(config_path: str = "config.json"):
     data_manager = create_data_manager(config)
     signal_calculator = create_signal_calculator(config, data_manager)
     risk_manager = create_risk_manager(config)
-    portfolio_manager = create_portfolio_manager(config, risk_manager, data_manager, signal_calculator)
-    trading_engine = TradingEngine(config, data_manager, signal_calculator, risk_manager, portfolio_manager)
+    portfolio_manager = create_portfolio_manager(
+        config, risk_manager, data_manager, signal_calculator
+    )
+    trading_engine = TradingEngine(
+        config, data_manager, signal_calculator, risk_manager, portfolio_manager
+    )
 
     return {
-        'config': config,
-        'data_manager': data_manager,
-        'signal_calculator': signal_calculator,
-        'risk_manager': risk_manager,
-        'portfolio_manager': portfolio_manager,
-        'trading_engine': trading_engine
+        "config": config,
+        "data_manager": data_manager,
+        "signal_calculator": signal_calculator,
+        "risk_manager": risk_manager,
+        "portfolio_manager": portfolio_manager,
+        "trading_engine": trading_engine,
     }
