@@ -1,237 +1,44 @@
-Critical: Enhance Security and DB Robustness (4-6 hours)
-
-Add full SQLCipher integration for encrypted DB.
-
-Approach: In models.py, use pysqlcipher3 if config['encrypted_db']; update engine creation.
-
-
-Implement global sensitive data filtering for all Loguru handlers.
-
-Approach: Apply SensitiveDataFilter class to all logger.add() in engine.py/main.py.
-
-
-
-High: Complete Unit/Integration Tests (15-25 hours)
-
-Test core calcs (CRI, Panic Score, position sizing) with pytest.
-
-Approach: Use conftest.py fixtures; add test_signals.py etc.; mock async with asynctest.
-
-
-Mock APIs (e.g., responses for yfinance). Cover 80% of lines.
-
-Approach: Use responses/aiohttp-mock; add pytest-cov.
-
-
-Add backtest assertions (e.g., expected returns for known data).
-
-Approach: In test_backtest.py, simulate biases; assert no overfitting.
-
-
-
-High: Address Backtest Pitfalls and Realism (10-15 hours)
-
-Mitigate common biases (look-ahead, survivorship, overfitting).
-
-Approach: In backtest.py, add walk-forward optimization; use survivor-free data sources.
-
-
-Add slippage/commissions to trades (if not fully done).
-
-Approach: Confirm in _execute_entry_backtest; add market impact (e.g., volume-based).
-
-
-Use real historical trends (e.g., via paid API or pre-downloaded datasets).
-
-Approach: Integrate finmarketpy or CSV loader fully.
-
-
-Handle holidays/weekends properly (already started—expand to global calendars).
-
-High: Optimize Data Processing and Integrate Modern Libs (8-12 hours)
-
-Replace Pandas with Polars for large ops.
-
-Approach: In signals.py/data_manager.py, migrate DFs; use polars for z-score/ATR.
-
-
-Add retries/backoff for async fetches.
-
-Approach: Use tenacity with aiohttp in data_manager.py.
-
-
-
-Medium: Eliminate Remaining Duplication and Optimize Logic (4-6 hours)
-
-Centralize Z-score/ATR in utils.py; remove dupes.
-
-Approach: Audit signals.py/backtest.py; import from utils.
-
-
-Weight Panic Score components (e.g., config params).
-
-Approach: Add weights in config.json; update calculate_panic_score.
-
-
-Add trailing stops to risk_manager.
-
-Approach: Implement in risk_manager.py with ATR.
-
-
-
-Medium: Improve Logging and Monitoring (3-5 hours)
-
-Standardize Loguru across all modules.
-
-Approach: Replace logging.getLogger with Loguru; enable JSON for prod.
-
-
-Enhance Prometheus metrics for equity/drawdown.
-
-Approach: Add gauges in backtest.py; ensure /metrics endpoint runs a server.
-
-
-
-Medium: Documentation and Style Cleanup (3-5 hours)
-
-Run black/flake8/mypy; enforce PEP8.
-
-Approach: Add pre-commit with Ruff; run on all.
-
-
-Trim redundant docstrings; add examples.
-
-Approach: Audit; add async examples.
-
-
-
-Low: Add Features (8-15 hours)
-
-Multi-exchange support in is_market_open().
-
-Approach: Use exchange APIs.
-
-
-Webhook alerts for drawdown breaches.
-
-Approach: In risk_manager.py, post to URL.
-
-
-CLI for backtest reports (e.g., HTML equity curves).
-
-Approach: Use plotly in main.py --report.
-
-
-Integrate ML for signals (e.g., scikit-learn).
-
-Approach: Add optional ML-based G-Score in signals.py.
-
-Critical: Mitigate Backtesting Pitfalls and Biases (8-12 hours)
-
-Address overfitting, look-ahead, survivorship biases.
-
-Approach: In backtest.py, implement walk-forward optimization (, ); use survivor-free data (e.g., via ccxt); add out-of-sample tests.
-
-
-Enhance realism with slippage, commissions, liquidity.
-
-Approach: Model volume-based impact in _execute_entry_backtest (, ).
-
-
-
-High: Integrate Mature Backtesting Library (12-18 hours)
-
-Replace custom BacktestEngine with vectorbt or Backtesting.py.
-
-Approach: Refactor backtest.py to use vectorbt for vectorized speed (, ); keep custom signals as plugins.
-
-
-
-High: Expand and Automate Testing (10-15 hours)
-
-Achieve 90% coverage with pytest-cov; add bias assertions.
-
-Approach: In test_backtest.py, simulate biases and assert prevention; integrate CI (pre-commit with Ruff).
-
-
-Add integration tests for trailing stops and async.
-
-Approach: Mock positions in test_risk_manager.py; test concurrency in test_integration.py.
-
-
-
-High: Optimize Data Processing Fully (6-8 hours)
-
-Mandate Polars for all Pandas ops.
-
-Approach: Migrate utils.py/signals.py fully; benchmark vs. Pandas.
-
-
-
-Medium: Eliminate Remaining Duplication and Refine Logic (4-6 hours)
-
-Centralize all calcs in utils.py.
-
-Approach: Remove dupes from signals.py/risk_manager.py.
-
-
-Add ML for signal weighting (e.g., scikit-learn).
-
-Approach: In signals.py, optional regression for Panic Score ().
-
-
-
-Medium: Standardize Logging/Monitoring Across Modules (3-5 hours)
-
-Use Loguru everywhere; add JSON for prod.
-
-Approach: Replace logging.getLogger in all files.
-
-
-Enhance Prometheus with backtest metrics.
-
-Approach: Add gauges for biases in engine.py/backtest.py.
-
-
-
-Medium: Documentation and Style Polish (3-5 hours)
-
-Enforce with Ruff/black/mypy.
-
-Approach: Add to pre-commit; update README.md with test badges.
-
-
-
-Low: Add Advanced Features (10-20 hours)
-
-Multi-exchange via ccxt.
-
-Approach: In utils.py/data_manager.py, integrate for is_market_open().
-
-
-Webhook alerts.
-
-Approach: In risk_manager.py, use requests.
-
-
-CLI reports with Plotly.
-
-Approach: In main.py, generate HTML curves.
-
-
-Broker API for live trading.
-
-Approach: Add Alpaca/ccxt in portfolio.py (, ).
-
-Low: Add Features (10-20 hours)
-Multi-exchange support in is_market_open().
-
-Approach: In utils.py, add exchange param to get_market_hours; use exchange APIs for open status.
-
-Webhook alerts for drawdown breaches.
-
-Approach: In risk_manager.py check_drawdown_limit, add requests.post to webhook URL.
-
-CLI for backtest reports (e.g., HTML equity curves).
-
-Approach: In main.py, add --report flag; use plotly to generate HTML equity curve from backtest results.
+Step 1: Foundations - Security and Testing (Priority: Critical)
+Before adding new features, we must ensure the system is secure and fully testable.
+Implement Full Database Encryption (4-6 hours)
+Task: Integrate pysqlcipher3 to enable full encryption for the SQLite database files (data.db, portfolio.db).
+Approach: In models.py, add conditional logic that creates the SQLAlchemy engine using SQLCipher if "encrypted_db": true is set in config.json. The encryption key must be stored in an environment variable (.env).
+Unify and Secure Logging (3-5 hours)
+Task: Replace all standard logging instances with Loguru. Implement a global SensitiveDataFilter for all handlers to automatically redact API keys and other sensitive data.
+Approach: Configure Loguru in main.py and engine.py. Apply the SensitiveDataFilter class to every logger.add() call to ensure consistent data masking across the application. Enable JSON serialization for production logs.
+Expand and Automate Testing (15-25 hours)
+Task: Achieve 80-90% code coverage. Create unit tests for key calculations (CRI, Panic Score, position sizing, trailing stops). Mock all external APIs (yfinance, pytrends) using responses or aiohttp-mock.
+Approach: Expand test_signals.py and test_risk_manager.py. In test_integration.py, add tests for asynchronous data fetching. Use pytest-cov to monitor coverage. Configure CI (e.g., GitHub Actions) with pre-commit and Ruff to automatically run tests and linters.
+Step 2: Backtesting Engine - Realism and Reliability (Priority: High)
+The current engine is good, but replacing it with a mature library will eliminate potential biases and accelerate development.
+Integrate a Professional Backtesting Library (12-18 hours)
+Task: Replace the current custom BacktestEngine with the vectorbt library. This will provide vectorization (massive speed boost) and built-in mechanisms to prevent common pitfalls.
+Approach: Create a new implementation of backtest.py that uses vectorbt. Adapt your custom signals (Panic Score, CRI) to function as "indicators" that can be plugged into the vectorbt engine.
+Enhance Simulation Realism (8-12 hours)
+Task: Ensure the new backtesting engine accounts for key market factors:
+Costs: Model commissions and volume-based slippage.
+Data: Integrate loading of historical Google Trends from CSV files. Ensure the use of data free from "survivorship bias" (e.g., from paid sources or specialized libraries).
+Calendar: Expand holiday handling to include global exchange calendars if you plan to trade in other markets.
+Approach: Configure slippage and commission parameters in vectorbt. Add a function to data_manager.py to load data from CSVs as an alternative to the API.
+Step 3: Optimization and Refactoring (Priority: High)
+With the new backtesting engine in place, it's time to optimize data processing and finalize the codebase.
+Full Migration to Polars and Data Optimization (8-12 hours)
+Task: Replace Pandas with Polars for all key data operations (signals, indicators, data management). Implement a retry mechanism with exponential backoff for all network requests.
+Approach: Rewrite the logic in signals.py, data_manager.py, and utils.py using Polars syntax. Use the tenacity library to wrap the asynchronous data-fetching functions in data_manager.py.
+Final Refactoring and Duplicate Elimination (4-6 hours)
+Task: Move all reusable calculation functions (like Z-score, ATR) into utils.py to create a single source of truth. Make the Panic Score components weighted based on parameters from config.json.
+Approach: Audit signals.py and risk_manager.py. Move all generic calculations to utils.py and import them where needed. Ensure that calculate_panic_score multiplies the individual Z-scores by their respective weights from the configuration.
+Step 4: Monitoring and Feature Enhancements (Priority: Medium & Low)
+The system is now stable, fast, and reliable. It's time to add features that enhance usability and functionality.
+Expand Monitoring and Alerts (4-6 hours)
+Task: Enhance Prometheus metrics to include backtest results (e.g., Sharpe ratio, max drawdown). Configure webhook alerts (e.g., to Slack/Discord) for critical events like a daily drawdown breach.
+Approach: In engine.py and backtest.py, add new Gauge metrics. In risk_manager.py, within the check_drawdown_limit method, add a requests.post() call to a webhook URL if the limit is breached.
+Add Advanced Features (10-20 hours)
+Task: Introduce new capabilities to extend the system's usefulness:
+Broker Integration: Add support for a broker API (e.g., Alpaca) in portfolio.py for live trade execution.
+CLI Reports: Create a --report flag in main.py that generates an interactive HTML report of the backtest's equity curve using Plotly.
+Multi-Exchange Support: Integrate the ccxt library into data_manager.py and utils.py to fetch data and check market hours for various crypto and traditional exchanges.
+ML Signals (Optional): In signals.py, add an experimental feature to use a scikit-learn model (e.g., logistic regression) to dynamically weigh Panic Score components or to evaluate the G-Score.
+Documentation and Final Polish (3-5 hours)
+Task: Update README.md with information about the new libraries (vectorbt, Polars), new features (trailing stops, reports), and CI/CD status (e.g., code coverage badges). Run Ruff and black on the entire project to ensure consistent style.
+Approach: Add new sections to README.md. Ensure the pre-commit configuration is set up and working correctly.
