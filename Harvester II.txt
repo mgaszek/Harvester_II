@@ -1,0 +1,138 @@
+Executive Summary
+This trading model is a simplified, robust system designed to capture market extremes driven by volatility and public attention. It operates on a daily timeframe to reduce data costs and complexity, making it ideal for a solo operator.
+The strategy is built on three core pillars:
+Asset Selection (CRI Filter): It first identifies a small universe of liquid assets (e.g., ETFs, top stocks, major cryptos) that have historically shown a strong correlation between price movement and shifts in public attention. This is measured by a simplified Crowd-Reactivity Index (CRI), which correlates price changes with Google Trends data. Only assets with a high CRI are considered for trading.
+Entry Signal (Panic Score): For the qualified assets, a daily Panic Score is calculated. This single, easy-to-debug number combines z-scores of three key metrics: price volatility (ATR), trading volume, and public attention (Google Trends). A score exceeding a high threshold (e.g., > 3.0) signals a potential entry.
+Macro Risk Filter (G-Score): A simple, rules-based Geopolitical Score (G-Score) acts as a master safety switch. It uses market-based proxies like the VIX and major index performance to gauge systemic risk. If the G-Score is high, the system automatically reduces its position sizes or pauses new trades entirely, preserving capital during market turmoil.
+Risk management is deterministic and strict, with fixed fractional position sizing (e.g., 0.5% of equity per trade), hard-coded limits on the number of open positions, and a daily "kill-switch" to prevent large drawdowns. The entire system is designed for clarity, auditability, and survivability.
+Pseudo-code for Review
+This pseudo-code outlines the complete logic, from setup to the daily trading loop.
+code
+Code
+// ===================================================================
+// 1. SETUP & INITIALIZATION
+// ===================================================================
+
+// -- Global Parameters (Constants)
+UNIVERSE = ["SPY", "QQQ", "GLD", "BTC-USD", "ETH-USD", ...]; // ~20-30 liquid assets
+LOOKBACK_WINDOW = 90;      // 90 days for correlations and z-scores
+CRI_THRESHOLD = 0.4;       // Minimum correlation to be a tradable asset
+PANIC_THRESHOLD = 3.0;     // Z-score sum required for entry
+G_SCORE_THRESHOLD = 2;     // Macro risk level to reduce size/stop trading
+
+// -- Risk Parameters
+EQUITY = 100000;           // Starting capital
+BASE_POSITION_FRACTION = 0.005; // 0.5% of equity per trade
+MAX_OPEN_POSITIONS = 4;
+DAILY_DRAWDOWN_LIMIT = -0.02 * EQUITY; // -2% kill-switch
+ATR_PROFIT_TARGET_MULTIPLIER = 2.0;
+ATR_STOP_LOSS_MULTIPLIER = 1.0;
+
+// -- State Variables
+Portfolio = {};            // Stores current holdings
+Tradable_Assets = [];      // Assets that pass the CRI filter
+Daily_PnL = 0;
+
+// -- Initial Calculation (Run once at start or weekly)
+FUNCTION Calculate_Tradable_Universe(UNIVERSE):
+    Tradable_Assets = [];
+    FOR each asset in UNIVERSE:
+        price_history = Get_Price_Data(asset, LOOKBACK_WINDOW);
+        trends_history = Get_Google_Trends_Data(asset, LOOKBACK_WINDOW);
+
+        // Calculate daily changes
+        price_deltas = calculate_daily_returns(price_history);
+        trends_deltas = calculate_daily_changes(trends_history);
+
+        // Calculate the CRI
+        correlation = pearson_correlation(price_deltas, trends_deltas);
+        CRI = abs(correlation);
+
+        IF CRI >= CRI_THRESHOLD:
+            ADD asset to Tradable_Assets;
+    RETURN Tradable_Assets;
+
+// Initialize the system
+Tradable_Assets = Calculate_Tradable_Universe(UNIVERSE);
+
+
+// ===================================================================
+// 2. MAIN TRADING LOOP (Runs once per day after market close)
+// ===================================================================
+
+FUNCTION Main_Loop():
+    // -- A. Check System-Wide Health & Risk
+    Current_PnL = calculate_portfolio_pnl(Portfolio, today_prices);
+    IF Current_PnL <= DAILY_DRAWDOWN_LIMIT:
+        PRINT "DAILY DRAWDOWN LIMIT HIT. SHUTTING DOWN.";
+        liquidate_all_positions();
+        STOP EXECUTION;
+
+    // -- B. Calculate Macro Risk Filter
+    G_Score = Calculate_G_Score();
+
+    // -- C. Evaluate Exits for Open Positions
+    FOR each position in Portfolio:
+        atr = Get_Indicator(position.asset, "ATR", 14);
+        profit_target_price = position.entry_price + (ATR_PROFIT_TARGET_MULTIPLIER * atr);
+        stop_loss_price = position.entry_price - (ATR_STOP_LOSS_MULTIPLIER * atr);
+
+        IF today_price >= profit_target_price OR today_price <= stop_loss_price:
+            execute_sell_order(position);
+            REMOVE position from Portfolio;
+
+    // -- D. Evaluate Entries for Tradable Assets
+    IF count(Portfolio) >= MAX_OPEN_POSITIONS:
+        RETURN; // Skip new entries if portfolio is full
+
+    FOR each asset in Tradable_Assets:
+        IF asset is already in Portfolio:
+            CONTINUE; // Skip if we already have a position
+
+        // Calculate the entry signal
+        volatility_z = Get_Z_Score(asset, "ATR", LOOKBACK_WINDOW);
+        volume_z = Get_Z_Score(asset, "Volume", LOOKBACK_WINDOW);
+        trends_z = Get_Z_Score(asset, "GoogleTrends", LOOKBACK_WINDOW);
+
+        Panic_Score = volatility_z + volume_z + trends_z;
+
+        // Make trading decision
+        IF Panic_Score > PANIC_THRESHOLD:
+            // Determine side based on recent price move (contrarian logic)
+            // If price moved down sharply, we buy; if up, we short.
+            price_change_5d = get_price_change_percent(asset, 5);
+            side = (price_change_5d < 0) ? "BUY" : "SELL";
+
+            // Apply G-Score for sizing
+            position_size_multiplier = (G_Score >= G_SCORE_THRESHOLD) ? 0.5 : 1.0;
+            size = EQUITY * BASE_POSITION_FRACTION * position_size_multiplier;
+
+            // Place the trade
+            execute_market_order(asset, side, size);
+            ADD new position to Portfolio;
+
+
+// ===================================================================
+// 3. HELPER FUNCTIONS
+// ===================================================================
+
+FUNCTION Calculate_G_Score():
+    score = 0;
+    vix_level = Get_Indicator("VIX", "price");
+    spy_return_7d = get_price_change_percent("SPY", 7);
+    oil_return_7d = get_price_change_percent("USO", 7);
+
+    IF vix_level > 25: score += 1;
+    IF spy_return_7d < -0.05: score += 1; // -5%
+    IF oil_return_7d > 0.10: score += 1; // +10%
+
+    RETURN score;
+
+FUNCTION Get_Z_Score(asset, indicator_name, window):
+    history = Get_Indicator_History(asset, indicator_name, window);
+    current_value = history.last_value;
+    mean = calculate_mean(history);
+    std_dev = calculate_std_dev(history);
+
+    IF std_dev == 0: RETURN 0;
+    RETURN (current_value - mean) / std_dev;

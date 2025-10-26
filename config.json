@@ -1,0 +1,149 @@
+{
+  "system": {
+    "name": "Harvester II",
+    "version": "1.0.0",
+    "description": "Volatility and attention-driven trading system",
+    "timeframe": "daily",
+    "lookback_window": 90
+  },
+  
+  "universe": {
+    "assets": [
+      "SPY", "QQQ", "GLD", "SLV", "TLT", "IWM", "EFA", "EEM",
+      "BTC-USD", "ETH-USD", "BNB-USD", "ADA-USD", "SOL-USD",
+      "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "META", "NVDA",
+      "USO", "UNG", "DBA", "GLD", "SLV", "TLT", "IEF"
+    ],
+    "cri_threshold": 0.4,
+    "max_universe_size": 30
+  },
+  
+  "signals": {
+    "panic_threshold": 3.0,
+    "indicators": {
+      "atr_period": 14,
+      "volume_period": 14,
+      "trends_period": 14
+    },
+    "z_score_window": 90,
+    "panic_score_weights": {
+      "volatility_weight": 1.0,
+      "volume_weight": 1.0,
+      "trends_weight": 0.8
+    }
+  },
+  
+  "risk_management": {
+    "equity": 100000,
+    "base_position_fraction": 0.005,
+    "max_open_positions": 4,
+    "daily_drawdown_limit": 0.02,
+    "atr_profit_target_multiplier": 2.0,
+    "atr_stop_loss_multiplier": 1.0,
+    "position_sizing": {
+      "min_position_size": 100,
+      "max_position_size": 5000,
+      "risk_per_trade": 0.005
+    },
+    "trailing_stops": {
+      "enabled": true,
+      "atr_multiplier": 1.5,
+      "min_distance": 0.02,
+      "update_frequency": "daily"
+    }
+  },
+  
+  "macro_risk": {
+    "g_score_threshold": 2,
+    "indicators": {
+      "vix_threshold": 25,
+      "spy_return_threshold": -0.05,
+      "oil_return_threshold": 0.10,
+      "lookback_days": 7
+    },
+    "position_size_multiplier": {
+      "high_risk": 0.5,
+      "normal_risk": 1.0
+    }
+  },
+  
+  "data_sources": {
+    "price_data": {
+      "provider": "yahoo_finance",
+      "backup_provider": "alpha_vantage"
+    },
+    "trends_data": {
+      "provider": "google_trends",
+      "api_key_required": false
+    },
+    "macro_data": {
+      "vix_symbols": ["VIX", "^VIX", "VIXCLS"],
+      "spy_symbol": "SPY",
+      "oil_symbol": "USO"
+    }
+  },
+  
+  "trading": {
+    "execution": {
+      "order_type": "market",
+      "slippage_tolerance": 0.001,
+      "commission_per_trade": 1.0
+    },
+    "schedule": {
+      "run_time": "16:00",
+      "timezone": "US/Eastern",
+      "trading_days": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    },
+    "logic": {
+      "contrarian_threshold": 5,
+      "price_change_lookback": 5
+    }
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/harvester_ii.log",
+    "max_file_size": "10MB",
+    "backup_count": 5
+  },
+  
+  "database": {
+    "encrypted": false,
+    "backup_enabled": true,
+    "backup_interval_hours": 24
+  },
+
+  "performance": {
+    "use_polars": true,
+    "async_api_calls": true,
+    "cache_enabled": true,
+    "cache_max_size": 1000
+  },
+
+  "monitoring": {
+    "prometheus_enabled": true,
+    "prometheus_port": 8000,
+    "metrics_update_interval": 60
+  },
+
+  "notifications": {
+    "email": {
+      "enabled": false,
+      "smtp_server": "",
+      "recipients": []
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": ""
+    }
+  },
+  
+  "backtesting": {
+    "start_date": "2020-01-01",
+    "end_date": "2024-01-01",
+    "initial_capital": 100000,
+    "benchmark": "SPY",
+    "historical_trends_csv": null
+  }
+  
+}
