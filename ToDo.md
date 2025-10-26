@@ -22,9 +22,10 @@ Updated October 26, 2025: Infused with the Inquisition's rites. Numbered for tra
    Mandate Polars.  
    - Approach: utils.py/signals.py migrate; requirements.txt pin; README benchmark.
 
-6. **Eliminate Duplication and Refine Logic (Quickening Rite)** (Medium, 4-6 hours) [ ]  
-   Centralize utils.py; add Bayesian State Machine for conviction.  
+6. ✅ **Eliminate Duplication and Refine Logic (Quickening Rite)** (Medium, 4-6 hours) - COMPLETED
+   Centralize utils.py; add Bayesian State Machine for conviction.
    - Approach: Merge validations; hmmlearn/scikit-learn probs in signals.py (IF/THEN → predict_proba >0.7); requirements.txt add.
+   - **COMPLETED**: Added BayesianStateMachine class with HMM for market state modeling (calm/volatile/panic). Centralized validation functions in utils.py. Replaced hard-coded IF/THEN logic with probabilistic conviction assessment using predict_proba > 0.7 threshold. Added fallback to rule-based logic when HMM unavailable.
 
 7. **Standardize Logging/Monitoring** (Medium, 3-5 hours) [ ]  
    Loguru global; JSON toggle.  

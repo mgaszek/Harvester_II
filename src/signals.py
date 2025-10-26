@@ -17,7 +17,11 @@ except ImportError:
     pl = None
 
 # Dependencies are now injected via constructor
-from utils import calculate_z_score, calculate_atr
+from utils import (
+    calculate_z_score, calculate_atr,
+    validate_symbol, validate_universe, validate_tradable_assets,
+    get_bayesian_state_machine
+)
 
 
 class SignalCalculator:
@@ -35,6 +39,13 @@ class SignalCalculator:
         self.panic_threshold = self.config.get('signals.panic_threshold', 3.0)
         self.g_score_threshold = self.config.get('macro_risk.g_score_threshold', 2)
 
+        # Initialize Bayesian State Machine for conviction assessment
+        self.state_machine = get_bayesian_state_machine()
+        if self.state_machine:
+            self.logger.info("Bayesian State Machine loaded for signal conviction assessment")
+        else:
+            self.logger.warning("Bayesian State Machine not available - using rule-based logic")
+
         # Indicator periods
         self.atr_period = self.config.get('signals.indicators.atr_period', 14)
         self.volume_period = self.config.get('signals.indicators.volume_period', 14)
@@ -49,28 +60,7 @@ class SignalCalculator:
         # Performance optimization settings
         self.use_polars = self.config.get('performance.use_polars', POLARS_AVAILABLE)
 
-    def _validate_symbol(self, symbol: str) -> None:
-        """
-        Validate symbol format.
-
-        Args:
-            symbol: Asset symbol to validate
-
-        Raises:
-            ValueError: If symbol is invalid
-        """
-        if not isinstance(symbol, str):
-            raise ValueError(f"Symbol must be a string, got {type(symbol)}")
-        if not symbol:
-            raise ValueError("Symbol cannot be empty")
-        if symbol != symbol.upper():
-            raise ValueError(f"Symbol must be uppercase, got {symbol}")
-        if len(symbol) > 10:
-            raise ValueError(f"Symbol too long, got {len(symbol)} characters")
-        # Basic validation for common characters (allow hyphens, underscores)
-        import re
-        if not re.match(r'^[A-Z0-9.^_-]+$', symbol):
-            raise ValueError(f"Symbol contains invalid characters, got {symbol}")
+    # _validate_symbol method removed - now using centralized validate_symbol from utils
 
     def _pct_change(self, series, periods: int = 1):
         """Calculate percentage change using pandas or polars."""
@@ -278,11 +268,8 @@ class SignalCalculator:
         Returns:
             List of tradable assets (high CRI)
         """
-        if not isinstance(universe, list):
-            raise ValueError(f"Universe must be a list, got {type(universe)}")
-
-        for symbol in universe:
-            self._validate_symbol(symbol)
+        # Use centralized validation
+        validate_universe(universe)
 
         tradable_assets = []
         
@@ -313,19 +300,16 @@ class SignalCalculator:
     
     def get_entry_signals(self, tradable_assets: List[str]) -> List[Dict[str, any]]:
         """
-        Get entry signals for tradable assets.
+        Get entry signals for tradable assets using Bayesian State Machine conviction assessment.
 
         Args:
             tradable_assets: List of tradable asset symbols
 
         Returns:
-            List of entry signal dictionaries
+            List of entry signal dictionaries with conviction levels
         """
-        if not isinstance(tradable_assets, list):
-            raise ValueError(f"Tradable assets must be a list, got {type(tradable_assets)}")
-
-        for symbol in tradable_assets:
-            self._validate_symbol(symbol)
+        # Use centralized validation
+        validate_tradable_assets(tradable_assets)
 
         signals = []
         
@@ -338,25 +322,88 @@ class SignalCalculator:
                 if price_data.empty:
                     continue
                 
-                # Calculate Panic Score
+                # Calculate Panic Score components for Bayesian assessment
                 panic_score = self.calculate_panic_score(symbol, price_data, trends_data)
-                
-                if panic_score > self.panic_threshold:
-                    # Determine trade direction (contrarian logic)
-                    price_change_5d = self._calculate_period_return(price_data, 5)
-                    
-                    signal = {
-                        'symbol': symbol,
-                        'panic_score': panic_score,
-                        'price_change_5d': price_change_5d,
-                        'side': 'BUY' if price_change_5d < 0 else 'SELL',
-                        'current_price': price_data['Close'].iloc[-1],
-                        'timestamp': pd.Timestamp.now()
-                    }
-                    
-                    signals.append(signal)
-                    self.logger.info(f"Entry signal for {symbol}: {signal['side']} "
-                                   f"(Panic Score: {panic_score:.2f}, 5d change: {price_change_5d:.4f})")
+
+                # Calculate additional features for state machine
+                price_change_5d = self._calculate_period_return(price_data, 5)
+                g_score = self.calculate_g_score()  # Get current macro risk score
+
+                # Extract z-score components from panic score calculation
+                volatility_z = 0.0
+                volume_z = 0.0
+                trends_z = 0.0
+
+                try:
+                    # Recalculate individual z-scores for state machine features
+                    recent_prices = self._tail(price_data, self.lookback_window)
+                    if len(recent_prices) >= 30:
+                        volatility_z = self._calculate_z_score(
+                            recent_prices['Close'].pct_change().std() * np.sqrt(252),
+                            recent_prices['Close'].pct_change().rolling(30).std() * np.sqrt(252)
+                        )
+
+                        volume_z = self._calculate_z_score(
+                            recent_prices['Volume'].iloc[-1],
+                            recent_prices['Volume']
+                        )
+
+                    if not trends_data.empty:
+                        recent_trends = self._tail(trends_data, self.lookback_window)
+                        if len(recent_trends) >= 30:
+                            trends_z = self._calculate_z_score(
+                                recent_trends['value'].iloc[-1],
+                                recent_trends['value']
+                            )
+                except Exception as e:
+                    self.logger.debug(f"Could not calculate all z-scores for {symbol}: {e}")
+
+                # Use Bayesian State Machine for conviction assessment
+                if self.state_machine:
+                    features = self.state_machine.prepare_features(
+                        volatility_z, volume_z, trends_z, g_score, price_change_5d
+                    )
+                    conviction = self.state_machine.assess_conviction(features)
+
+                    # Only generate signal if state machine says to trade
+                    if conviction['should_trade']:
+                        signal = {
+                            'symbol': symbol,
+                            'panic_score': panic_score,
+                            'price_change_5d': price_change_5d,
+                            'side': 'BUY' if price_change_5d < 0 else 'SELL',  # Contrarian logic
+                            'current_price': price_data['Close'].iloc[-1],
+                            'timestamp': pd.Timestamp.now(),
+                            'conviction_level': conviction['conviction_level'],
+                            'confidence': conviction['confidence'],
+                            'market_state': conviction.get('state', 'unknown'),
+                            'assessment_method': conviction['method']
+                        }
+
+                        signals.append(signal)
+                        self.logger.info(f"Entry signal for {symbol}: {signal['side']} "
+                                       f"(Conviction: {conviction['conviction_level']}, "
+                                       f"Confidence: {conviction['confidence']:.2f}, "
+                                       f"State: {conviction.get('state', 'unknown')})")
+                else:
+                    # Fallback to original rule-based logic
+                    if panic_score > self.panic_threshold:
+                        signal = {
+                            'symbol': symbol,
+                            'panic_score': panic_score,
+                            'price_change_5d': price_change_5d,
+                            'side': 'BUY' if price_change_5d < 0 else 'SELL',
+                            'current_price': price_data['Close'].iloc[-1],
+                            'timestamp': pd.Timestamp.now(),
+                            'conviction_level': 'high',  # Legacy assumption
+                            'confidence': min(panic_score / 4.0, 1.0),
+                            'market_state': 'unknown',
+                            'assessment_method': 'rules'
+                        }
+
+                        signals.append(signal)
+                        self.logger.info(f"Entry signal for {symbol}: {signal['side']} "
+                                       f"(Legacy Panic Score: {panic_score:.2f}, 5d change: {price_change_5d:.4f})")
                 
             except Exception as e:
                 self.logger.error(f"Failed to get entry signal for {symbol}: {e}")

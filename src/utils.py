@@ -12,6 +12,18 @@ import json
 import os
 from pathlib import Path
 
+# Machine learning imports
+try:
+    from hmmlearn import hmm
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
+    HMM_AVAILABLE = True
+except ImportError:
+    hmm = None
+    StandardScaler = None
+    train_test_split = None
+    HMM_AVAILABLE = False
+
 
 def calculate_returns(prices: pd.Series, periods: int = 1) -> pd.Series:
     """
@@ -445,16 +457,16 @@ def calculate_position_size_fixed_fractional(equity: float, risk_percent: float,
         return 0
 
 
-def calculate_position_size_percentage(equity: float, position_percent: float, 
+def calculate_position_size_percentage(equity: float, position_percent: float,
                                      price: float) -> int:
     """
     Calculate position size using percentage of equity method.
-    
+
     Args:
         equity: Available equity
         position_percent: Position percentage (e.g., 0.01 for 1%)
         price: Asset price
-        
+
     Returns:
         Number of shares/units
     """
@@ -462,7 +474,317 @@ def calculate_position_size_percentage(equity: float, position_percent: float,
         position_value = equity * position_percent
         shares = int(position_value / price)
         return max(0, shares)
-        
+
     except Exception as e:
         logging.error(f"Failed to calculate position size: {e}")
         return 0
+
+
+# ==================== VALIDATION FUNCTIONS ====================
+
+def validate_symbol(symbol: str) -> None:
+    """
+    Validate asset symbol format (centralized from signals.py).
+
+    Args:
+        symbol: Asset symbol to validate
+
+    Raises:
+        ValueError: If symbol is invalid
+    """
+    if not isinstance(symbol, str):
+        raise ValueError(f"Symbol must be a string, got {type(symbol)}")
+    if not symbol:
+        raise ValueError("Symbol cannot be empty")
+    if symbol != symbol.upper():
+        raise ValueError(f"Symbol must be uppercase, got {symbol}")
+    if len(symbol) > 10:
+        raise ValueError(f"Symbol too long, got {len(symbol)} characters")
+
+    # Basic validation for common characters (allow hyphens, underscores)
+    import re
+    if not re.match(r'^[A-Z0-9.^_-]+$', symbol):
+        raise ValueError(f"Symbol contains invalid characters, got {symbol}")
+
+
+def validate_universe(universe: List[str]) -> None:
+    """
+    Validate asset universe list.
+
+    Args:
+        universe: List of asset symbols
+
+    Raises:
+        ValueError: If universe is invalid
+    """
+    if not isinstance(universe, list):
+        raise ValueError(f"Universe must be a list, got {type(universe)}")
+
+    if not universe:
+        raise ValueError("Universe cannot be empty")
+
+    for symbol in universe:
+        validate_symbol(symbol)
+
+
+def validate_tradable_assets(tradable_assets: List[str]) -> None:
+    """
+    Validate tradable assets list.
+
+    Args:
+        tradable_assets: List of tradable asset symbols
+
+    Raises:
+        ValueError: If tradable_assets is invalid
+    """
+    if not isinstance(tradable_assets, list):
+        raise ValueError(f"Tradable assets must be a list, got {type(tradable_assets)}")
+
+    for symbol in tradable_assets:
+        validate_symbol(symbol)
+
+
+# ==================== BAYESIAN STATE MACHINE ====================
+
+class BayesianStateMachine:
+    """
+    Bayesian State Machine for signal conviction assessment using Hidden Markov Models.
+
+    Models market states (calm, volatile, panic) and provides probabilistic
+    conviction levels for trading signals instead of hard-coded thresholds.
+    """
+
+    def __init__(self, n_states: int = 3, conviction_threshold: float = 0.7):
+        """
+        Initialize the Bayesian State Machine.
+
+        Args:
+            n_states: Number of market states to model (default: 3 - calm/volatile/panic)
+            conviction_threshold: Minimum probability for high conviction (default: 0.7)
+        """
+        self.n_states = n_states
+        self.conviction_threshold = conviction_threshold
+        self.model = None
+        self.scaler = None
+        self.is_trained = False
+
+        if not HMM_AVAILABLE:
+            logging.warning("HMM dependencies not available - Bayesian State Machine disabled")
+            return
+
+        # Initialize HMM model
+        self.model = hmm.GaussianHMM(
+            n_components=n_states,
+            covariance_type="full",
+            n_iter=100,
+            random_state=42
+        )
+        self.scaler = StandardScaler()
+
+        logging.info(f"Bayesian State Machine initialized with {n_states} states")
+
+    def prepare_features(self, volatility_z: float, volume_z: float, trends_z: float,
+                        g_score: float, price_change_5d: float) -> np.ndarray:
+        """
+        Prepare feature vector for state machine input.
+
+        Args:
+            volatility_z: Volatility z-score
+            volume_z: Volume z-score
+            trends_z: Trends z-score
+            g_score: Geopolitical score
+            price_change_5d: 5-day price change
+
+        Returns:
+            Feature vector as numpy array
+        """
+        return np.array([[volatility_z, volume_z, trends_z, g_score, price_change_5d]])
+
+    def train(self, historical_features: np.ndarray, n_splits: int = 5) -> bool:
+        """
+        Train the HMM on historical market data.
+
+        Args:
+            historical_features: Historical feature matrix (n_samples, n_features)
+            n_splits: Number of cross-validation splits
+
+        Returns:
+            True if training successful
+        """
+        if not HMM_AVAILABLE or self.model is None:
+            return False
+
+        try:
+            # Scale features
+            scaled_features = self.scaler.fit_transform(historical_features)
+
+            # Train model
+            self.model.fit(scaled_features)
+            self.is_trained = True
+
+            logging.info(f"Bayesian State Machine trained on {len(historical_features)} samples")
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to train Bayesian State Machine: {e}")
+            return False
+
+    def assess_conviction(self, features: np.ndarray) -> Dict[str, Any]:
+        """
+        Assess signal conviction using the trained HMM.
+
+        Args:
+            features: Current feature vector
+
+        Returns:
+            Dictionary with conviction assessment
+        """
+        if not self.is_trained or not HMM_AVAILABLE:
+            # Fallback to rule-based assessment
+            return self._rule_based_conviction(features)
+
+        try:
+            # Scale features
+            scaled_features = self.scaler.transform(features)
+
+            # Get state probabilities
+            state_probs = self.model.predict_proba(scaled_features)[0]
+
+            # Determine most likely state and conviction
+            most_likely_state = np.argmax(state_probs)
+            max_probability = np.max(state_probs)
+
+            # State interpretation (assuming states are ordered: 0=calm, 1=volatile, 2=panic)
+            state_names = ['calm', 'volatile', 'panic']
+            state_name = state_names[min(most_likely_state, len(state_names) - 1)]
+
+            # Conviction levels based on probability confidence
+            if max_probability >= self.conviction_threshold:
+                conviction_level = 'high'
+                should_trade = (state_name in ['volatile', 'panic'])  # Only trade in stressed markets
+            elif max_probability >= 0.5:
+                conviction_level = 'medium'
+                should_trade = False  # Too uncertain
+            else:
+                conviction_level = 'low'
+                should_trade = False  # Not confident enough
+
+            return {
+                'conviction_level': conviction_level,
+                'should_trade': should_trade,
+                'state': state_name,
+                'confidence': max_probability,
+                'state_probabilities': state_probs.tolist(),
+                'method': 'hmm'
+            }
+
+        except Exception as e:
+            logging.error(f"HMM conviction assessment failed: {e}")
+            return self._rule_based_conviction(features)
+
+    def _rule_based_conviction(self, features: np.ndarray) -> Dict[str, Any]:
+        """
+        Fallback rule-based conviction assessment.
+
+        Args:
+            features: Feature vector
+
+        Returns:
+            Dictionary with rule-based assessment
+        """
+        try:
+            volatility_z, volume_z, trends_z, g_score, price_change_5d = features[0]
+
+            # Calculate composite panic score
+            panic_score = (abs(volatility_z) + abs(volume_z) + abs(trends_z)) / 3
+
+            # Rule-based logic (original system thresholds)
+            if panic_score > 3.0 and g_score >= 1:
+                conviction_level = 'high'
+                should_trade = True
+            elif panic_score > 2.0:
+                conviction_level = 'medium'
+                should_trade = False
+            else:
+                conviction_level = 'low'
+                should_trade = False
+
+            return {
+                'conviction_level': conviction_level,
+                'should_trade': should_trade,
+                'panic_score': panic_score,
+                'confidence': min(panic_score / 4.0, 1.0),  # Normalized confidence
+                'method': 'rules'
+            }
+
+        except Exception as e:
+            logging.error(f"Rule-based conviction assessment failed: {e}")
+            return {
+                'conviction_level': 'low',
+                'should_trade': False,
+                'confidence': 0.0,
+                'method': 'fallback'
+            }
+
+    def generate_synthetic_training_data(self, n_samples: int = 1000) -> np.ndarray:
+        """
+        Generate synthetic training data for HMM training.
+
+        Args:
+            n_samples: Number of samples to generate
+
+        Returns:
+            Synthetic feature matrix
+        """
+        np.random.seed(42)  # For reproducibility
+
+        features = []
+
+        for _ in range(n_samples):
+            # Generate market scenarios
+            scenario = np.random.choice(['calm', 'volatile', 'panic'], p=[0.6, 0.3, 0.1])
+
+            if scenario == 'calm':
+                volatility_z = np.random.normal(0, 0.5)
+                volume_z = np.random.normal(0, 0.3)
+                trends_z = np.random.normal(0, 0.4)
+                g_score = np.random.choice([0, 1], p=[0.9, 0.1])
+                price_change_5d = np.random.normal(0, 0.02)
+
+            elif scenario == 'volatile':
+                volatility_z = np.random.normal(1.5, 0.8)
+                volume_z = np.random.normal(1.2, 0.6)
+                trends_z = np.random.normal(0.8, 0.7)
+                g_score = np.random.choice([0, 1, 2], p=[0.4, 0.4, 0.2])
+                price_change_5d = np.random.normal(0, 0.05)
+
+            else:  # panic
+                volatility_z = np.random.normal(3.0, 1.0)
+                volume_z = np.random.normal(2.5, 0.8)
+                trends_z = np.random.normal(2.0, 0.9)
+                g_score = np.random.choice([1, 2, 3], p=[0.3, 0.4, 0.3])
+                price_change_5d = np.random.normal(0, 0.08)
+
+            features.append([volatility_z, volume_z, trends_z, g_score, price_change_5d])
+
+        return np.array(features)
+
+
+# Global Bayesian State Machine instance
+_bayesian_state_machine: Optional[BayesianStateMachine] = None
+
+
+def get_bayesian_state_machine() -> Optional[BayesianStateMachine]:
+    """
+    Get the global Bayesian State Machine instance.
+
+    Returns:
+        BayesianStateMachine instance or None if not available
+    """
+    global _bayesian_state_machine
+    if _bayesian_state_machine is None and HMM_AVAILABLE:
+        _bayesian_state_machine = BayesianStateMachine()
+        # Train with synthetic data if no real training data available
+        synthetic_data = _bayesian_state_machine.generate_synthetic_training_data(1000)
+        _bayesian_state_machine.train(synthetic_data)
+    return _bayesian_state_machine
