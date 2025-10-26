@@ -1,53 +1,41 @@
 # Harvester II To-Do List
 
-Updated October 26, 2025: This is a flattened, numbered list version for easier tracking. Priorities preserved (Critical first, then High, Medium, Low). Items consolidated to avoid duplicates—e.g., testing expansions merged, no repeated Polars mandates. Total estimated effort: ~60-90 hours. Mark off as [x] when done.
+Updated October 26, 2025: Infused with the Inquisition's rites. Numbered for tracking; [ ] unchecked. Effort: ~60-90 hours. Focus: Anointment (CRI enhance), Quickening (Bayesian), Adaptation (feedback).
 
-1. **Mitigate Backtesting Pitfalls and Biases** (Critical, 8-12 hours)  
-   Address overfitting, look-ahead, survivorship biases.  
-   - Approach: In backtest.py, add walk-forward optimization; use survivor-free data (ccxt); assert in test_backtest.py.  
-   Enhance realism with slippage, commissions, liquidity.  
-   - Approach: Volume-based impact in _execute_entry_backtest; config.json toggles.
+1. **Mitigate Backtesting Pitfalls and Biases** (Critical, 8-12 hours) [ ]  
+   Address overfitting/look-ahead/survivorship.  
+   - Approach: backtest.py walk-forward; ccxt survivor-free data; test_backtest.py asserts.
 
-2. **Add License and Repo Polish** (Critical, 2-4 hours)  
-   Include open-source license (e.g., MIT).  
-   - Approach: Add LICENSE file; update README badges (coverage, build).  
-   Secure .env/.gitignore.  
-   - Approach: Confirm gitignore excludes .env/data/*.db; add prod secrets guide in README.
+2. **Add License and Repo Polish** (Critical, 2-4 hours) [ ]  
+   MIT LICENSE; README badges/secrets guide.  
+   - Approach: .gitignore confirm; prod env vars section.
 
-3. **Integrate Mature Backtesting Library** (High, 12-18 hours)  
-   Replace custom BacktestEngine with vectorbt or Backtesting.py.  
-   - Approach: Refactor backtest.py to vectorbt for speed; plugin custom signals; update test_backtest.py.
+3. **Integrate Mature Backtesting Library** (High, 12-18 hours) [ ]  
+   Vectorbt/Backtesting.py refactor.  
+   - Approach: backtest.py vectorize; plugin signals; test_backtest.py update.
 
-4. **Expand and Automate Testing** (High, 10-15 hours)  
-   Achieve 90% coverage with pytest-cov; add bias assertions and e2e trade cycles.  
-   - Approach: Integrate cov in pytest.ini; add full cycles in test_integration.py; mock positions/asynctest for risk_manager.py/data_manager.py.
+4. **Expand Testing with Adaptation Loop** (High, 10-15 hours) [ ]  
+   90% cov (pytest-cov); bias/e2e assertions; bridge backtest to live params.  
+   - Approach: pytest.ini cov; test_integration.py cycles; optuna feedback in engine.py (Rite of Adaptation).
 
-5. **Optimize Data Processing Fully** (High, 6-8 hours)  
-   Mandate Polars for all Pandas ops.  
-   - Approach: Migrate utils.py/signals.py; benchmark in README; pin polars in requirements.txt.
+5. **Optimize Data Processing Fully** (High, 6-8 hours) [ ]  
+   Mandate Polars.  
+   - Approach: utils.py/signals.py migrate; requirements.txt pin; README benchmark.
 
-6. **Eliminate Remaining Duplication and Refine Logic** (Medium, 4-6 hours)  
-   Centralize validations/calcs in utils.py.  
-   - Approach: Merge _validate_symbol; remove dupes from signals.py/data_manager.py.  
-   Add ML for signal weighting (scikit-learn).  
-   - Approach: Optional regressor in signals.py for Panic; add to requirements.txt.
+6. **Eliminate Duplication and Refine Logic (Quickening Rite)** (Medium, 4-6 hours) [ ]  
+   Centralize utils.py; add Bayesian State Machine for conviction.  
+   - Approach: Merge validations; hmmlearn/scikit-learn probs in signals.py (IF/THEN → predict_proba >0.7); requirements.txt add.
 
-7. **Standardize Logging/Monitoring** (Medium, 3-5 hours)  
-   Use Loguru everywhere; enable JSON prod mode.  
-   - Approach: Replace logging.getLogger in all src/; config.json toggle.  
-   Enhance Prometheus with bias/drawdown metrics.  
-   - Approach: Gauges in engine.py/backtest.py; Grafana setup in README.
+7. **Standardize Logging/Monitoring** (Medium, 3-5 hours) [ ]  
+   Loguru global; JSON toggle.  
+   - Approach: Replace getLogger; Prometheus gauges (bias/conviction).
 
-8. **Documentation and Style Polish** (Medium, 3-5 hours)  
-   Enforce Ruff/black/mypy via pre-commit.  
-   - Approach: Add .pre-commit-config.yaml; run on repo; update README setup.  
-   Expand README: Signal tuning examples, API key guide, config.json schema.  
-   - Approach: Add sections for customization.
+8. **Documentation and Style Polish (Anointment Rite)** (Medium, 3-5 hours) [ ]  
+   Pre-commit Ruff/etc.; README tuning/API guide.  
+   - Approach: .pre-commit-config.yaml; CRI examples/schema.
 
-9. **Add Advanced Features** (Low, 10-20 hours)  
-   Multi-exchange via ccxt.  
-   - Approach: Integrate in data_manager.py/utils.py for is_market_open().  
-   Webhook alerts + Plotly CLI reports.  
-   - Approach: requests.post in risk_manager.py; --report flag in main.py.  
-   CI/CD with GitHub Actions.  
-   - Approach: .github/workflows for tests/lint on push.
+9. **Add Advanced Features** (Low, 10-20 hours) [ ]  
+   Ccxt multi-exchange; webhooks/Plotly reports; GitHub Actions CI.  
+   - Approach: data_manager.py integrate; risk_manager.py alerts; .github/workflows.
+
+The golem stirs—light the fire with Rite #6 (Bayesian soul) for quick wins. What's your first incantation: Code for the State Machine, or a PR scaffold? Let's ascend.
