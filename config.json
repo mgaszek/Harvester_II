@@ -120,8 +120,17 @@
     "cache_max_size": 1000
   },
 
+  "logging": {
+    "level": "INFO",
+    "json_format": false,
+    "file_path": "logs/harvester_ii.log",
+    "max_size": "10 MB",
+    "retention": "1 week",
+    "enable_console": true,
+    "enable_file": true
+  },
+
   "monitoring": {
-    "prometheus_enabled": true,
     "prometheus_port": 8000,
     "metrics_update_interval": 60
   },
@@ -145,6 +154,12 @@
     "benchmark": "SPY",
     "historical_trends_csv": null,
     "use_vectorbt": false
+  },
+
+  "optimization": {
+    "n_trials": 50,
+    "timeout_seconds": 1800,
+    "study_name": "harvester_ii_optimization"
   },
 
   "bayesian": {

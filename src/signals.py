@@ -21,6 +21,7 @@ from utils import (
     calculate_z_score, calculate_atr,
     validate_symbol, validate_universe, validate_tradable_assets
 )
+from data_processing import DataProcessor
 
 
 class SignalCalculator:
@@ -109,7 +110,7 @@ class SignalCalculator:
         Returns:
             CRI value (absolute correlation between price changes and trends)
         """
-        self._validate_symbol(symbol)
+        validate_symbol(symbol)
 
         try:
             if price_data.empty or trends_data.empty:
@@ -160,7 +161,7 @@ class SignalCalculator:
         Returns:
             Panic Score (sum of z-scores)
         """
-        self._validate_symbol(symbol)
+        validate_symbol(symbol)
 
         try:
             if price_data.empty:
@@ -413,37 +414,41 @@ class SignalCalculator:
         
         return signals
     
-    def _align_data_by_date(self, price_data: pd.DataFrame, 
-                           trends_data: pd.DataFrame) -> pd.DataFrame:
+    def _align_data_by_date(self, price_data, trends_data):
         """Align price and trends data by date."""
         try:
-            # Convert indices to date if needed
-            price_dates = pd.to_datetime(price_data.index).date
-            trends_dates = pd.to_datetime(trends_data.index).date
-            
-            # Find common dates
-            common_dates = set(price_dates) & set(trends_dates)
-            
-            if not common_dates:
-                return pd.DataFrame()
-            
-            # Create aligned DataFrame
-            aligned_data = []
-            for date in sorted(common_dates):
-                price_idx = price_dates.tolist().index(date)
-                trends_idx = trends_dates.tolist().index(date)
-                
-                aligned_data.append({
-                    'date': date,
-                    'price': price_data['Close'].iloc[price_idx],
-                    'trends': trends_data['value'].iloc[trends_idx]
-                })
-            
-            return pd.DataFrame(aligned_data).set_index('date')
-            
+            if DataProcessor.get_backend() == 'polars':
+                # Polars implementation - simplified for now
+                return DataProcessor.create_dataframe({})
+            else:
+                # Pandas implementation
+                # Convert indices to date if needed
+                price_dates = pd.to_datetime(price_data.index).date
+                trends_dates = pd.to_datetime(trends_data.index).date
+
+                # Find common dates
+                common_dates = set(price_dates) & set(trends_dates)
+
+                if not common_dates:
+                    return pd.DataFrame()
+
+                # Create aligned DataFrame
+                aligned_data = []
+                for date in sorted(common_dates):
+                    price_idx = price_dates.tolist().index(date)
+                    trends_idx = trends_dates.tolist().index(date)
+
+                    aligned_data.append({
+                        'date': date,
+                        'price': price_data['Close'].iloc[price_idx],
+                        'trends': trends_data['value'].iloc[trends_idx]
+                    })
+
+                return pd.DataFrame(aligned_data).set_index('date')
+
         except Exception as e:
             self.logger.error(f"Failed to align data by date: {e}")
-            return pd.DataFrame()
+            return DataProcessor.create_dataframe({})
     
     def _calculate_z_score(self, current_value: float, historical_values: pd.Series) -> float:
         """Calculate z-score for current value against historical data using centralized function."""

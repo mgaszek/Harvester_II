@@ -135,6 +135,278 @@ cd src && pytest
 
 ## 🔧 Configuration
 
+## 📊 Logging & Monitoring
+
+### Structured Logging with Loguru
+
+Harvester II uses **Loguru** for advanced structured logging with JSON support:
+
+```bash
+# Enable JSON logging for log aggregation systems
+export HARVESTER_LOG_JSON=true
+
+# Set log level
+export HARVESTER_LOG_LEVEL=DEBUG
+
+# Configure log file and rotation
+export HARVESTER_LOG_FILE=logs/trading.log
+export HARVESTER_LOG_MAX_SIZE="50 MB"
+```
+
+**Features:**
+- ✅ **Structured JSON Output**: Perfect for log aggregation (ELK, Splunk, etc.)
+- ✅ **Automatic Rotation**: Log files rotate by size with configurable retention
+- ✅ **Colored Console Output**: Human-readable terminal output
+- ✅ **Sensitive Data Filtering**: Automatic redaction of API keys and secrets
+- ✅ **Performance Logging**: Structured metrics for trading signals and performance
+
+### Comprehensive Prometheus Monitoring
+
+Complete system monitoring with **30+ metrics** exposed via Prometheus:
+
+```bash
+# Access metrics at http://localhost:8000
+curl http://localhost:8000/metrics
+```
+
+**Core Metrics:**
+- **Portfolio**: Equity, positions, daily P&L
+- **Risk**: Drawdown, G-Score, conviction levels
+- **Performance**: Sharpe ratio, win rate, max drawdown
+- **Bias Analysis**: Look-ahead, survivorship, overfitting detection
+- **System Health**: Data source availability, processing times
+
+**Trading Signals:**
+```prometheus
+harvester_signal_conviction{conviction="0.85"}  # Current signal conviction
+harvester_signals_total{signal_type="entry",outcome="generated"}  # Signal counts
+```
+
+**Bias Detection:**
+```prometheus
+harvester_bias_look_ahead 0  # 0=no bias, 1=bias detected
+harvester_bias_survivorship 0
+harvester_bias_overfitting 0
+```
+
+## 📚 API Documentation
+
+### Core Trading Signals API
+
+#### Crowd-Reactivity Index (CRI) Calculation
+
+The CRI measures correlation between price movements and search interest:
+
+```python
+from src.signals import SignalCalculator
+from src.data_processing import create_dataframe, create_series
+
+# Initialize signal calculator
+config = load_config()
+data_manager = create_data_manager(config)
+signal_calc = SignalCalculator(config, data_manager)
+
+# Get price and trends data
+price_data = create_dataframe({
+    'Close': [100.0, 102.0, 101.0, 103.0, 105.0]
+}, index=['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04', '2023-01-05'])
+
+trends_data = create_dataframe({
+    'value': [75, 78, 80, 82, 85]
+}, index=['2023-01-01', '2023-01-02', '2023-01-03', '2023-01-04', '2023-01-05'])
+
+# Calculate CRI
+cri_score = signal_calc.calculate_cri('AAPL', price_data, trends_data)
+print(f"CRI Score: {cri_score:.3f}")  # Correlation coefficient (-1.0 to 1.0)
+```
+
+**CRI Interpretation:**
+- **> 0.7**: Strong positive correlation (crowd anticipation)
+- **0.3 - 0.7**: Moderate correlation
+- **< 0.3**: Weak or no correlation
+- **< 0**: Inverse correlation (contrarian signal)
+
+#### Panic Score Calculation
+
+Combines volatility, volume, and trends z-scores:
+
+```python
+# Calculate panic score
+panic_score = signal_calc.calculate_panic_score('AAPL', price_data, trends_data)
+print(f"Panic Score: {panic_score:.2f}")
+
+# Weighted components (configurable in config.json)
+panic_components = {
+    'volatility_weight': 1.0,    # Price volatility z-score
+    'volume_weight': 1.0,        # Volume z-score
+    'trends_weight': 1.0         # Google Trends z-score
+}
+```
+
+**Panic Score Components:**
+- **Volatility**: Rolling standard deviation of returns
+- **Volume**: Trading volume relative to average
+- **Trends**: Google search interest changes
+
+#### Entry Signal Generation
+
+```python
+# Get trading signals for universe
+tradable_assets = ['AAPL', 'MSFT', 'GOOGL']
+signals = signal_calc.get_entry_signals(tradable_assets)
+
+for signal in signals:
+    print(f"Symbol: {signal['symbol']}")
+    print(f"Conviction: {signal['confidence']:.2f}")
+    print(f"Market State: {signal.get('market_state', 'unknown')}")
+    print(f"Assessment Method: {signal.get('assessment_method', 'rule-based')}")
+```
+
+### Bayesian State Machine API
+
+#### HMM-Based Market Regime Detection
+
+```python
+from src.bayesian_state import get_bayesian_state_machine
+
+# Initialize BSM
+config_data = load_config()
+bsm = get_bayesian_state_machine(config_data)
+
+# Prepare features for prediction
+features = np.array([[2.0, 1.5, 2.5, 2, -0.02]])  # [cri, volatility, volume, panic, momentum]
+
+# Assess market conviction
+assessment = bsm.assess_conviction(features)
+print(f"Conviction: {assessment['confidence']:.2f}")
+print(f"Market State: {assessment['state']}")
+print(f"Should Trade: {assessment['should_trade']}")
+```
+
+**Market States:**
+- **Calm**: Low volatility, normal conditions
+- **Volatile**: High volatility, uncertain conditions
+- **Panic**: Extreme volatility, crisis conditions
+
+### Backtesting API
+
+#### Comprehensive Backtesting
+
+```python
+from src.backtest import BacktestEngine
+
+# Initialize backtest engine
+backtest_engine = BacktestEngine(config, data_manager, signal_calc, risk_manager)
+
+# Run backtest with vectorized option
+results = backtest_engine.run_backtest(
+    start_date='2020-01-01',
+    end_date='2024-01-01',
+    initial_capital=100000,
+    use_vectorbt=False  # or True for VectorBT integration
+)
+
+print(f"Total Return: {results['capital']['total_return']:.2%}")
+print(f"Sharpe Ratio: {results['capital']['sharpe_ratio']:.2f}")
+print(f"Max Drawdown: {results['capital']['max_drawdown']:.2%}")
+```
+
+#### A/B Testing Framework
+
+```python
+# Compare Bayesian enabled vs disabled
+ab_results = backtest_engine.run_ab_test('2020-01-01', '2021-01-01')
+
+print("=== A/B Test Results ===")
+print(f"Bayesian Sharpe: {ab_results['bayesian_enabled']['capital']['sharpe_ratio']:.2f}")
+print(f"Rule-based Sharpe: {ab_results['bayesian_disabled']['capital']['sharpe_ratio']:.2f}")
+```
+
+### Optimization API
+
+#### Hyperparameter Tuning
+
+```python
+from src.optimization import get_optimizer
+
+# Initialize optimizer
+optimizer = get_optimizer(config, data_manager, signal_calc, risk_manager, backtest_engine)
+
+# Run optimization
+opt_results = optimizer.optimize_parameters('2020-01-01', '2021-01-01')
+
+print(f"Best Sharpe: {opt_results['best_sharpe_ratio']:.3f}")
+print(f"Optimized Parameters: {opt_results['best_parameters']}")
+```
+
+### Configuration Schema
+
+#### Core Configuration Structure
+
+```json
+{
+  "universe": {
+    "assets": ["SPY", "QQQ", "BTC-USD"],
+    "cri_threshold": 0.4
+  },
+  "signals": {
+    "panic_threshold": 3.0,
+    "panic_score_weights": {
+      "volatility_weight": 1.0,
+      "volume_weight": 1.0,
+      "trends_weight": 1.0
+    }
+  },
+  "risk_management": {
+    "max_position_size": 0.05,
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.10,
+    "max_open_positions": 5
+  },
+  "backtesting": {
+    "start_date": "2020-01-01",
+    "end_date": "2024-01-01",
+    "initial_capital": 100000
+  },
+  "bayesian": {
+    "enabled": true,
+    "n_states": 3,
+    "conviction_threshold": 0.7
+  },
+  "logging": {
+    "level": "INFO",
+    "json_format": false,
+    "file_path": "logs/harvester_ii.log"
+  },
+  "monitoring": {
+    "prometheus_port": 8000
+  }
+}
+```
+
+### Data Processing Backend
+
+Harvester II supports multiple data processing backends for optimal performance:
+
+- **Pandas** (default): Mature, feature-complete, widely compatible
+- **Polars**: High-performance, memory-efficient, Rust-based engine
+
+```bash
+# Switch to Polars for better performance
+export HARVESTER_DATA_BACKEND=polars
+
+# Run benchmarks to compare performance
+python src/benchmark_data_processing.py
+```
+
+**Performance Comparison (10k data points):**
+| Operation | Pandas | Polars | Speedup |
+|-----------|--------|--------|---------|
+| DataFrame Creation | ~5ms | ~2ms | 2.5x |
+| Series Operations | ~10ms | ~3ms | 3.3x |
+| Correlation | ~8ms | ~2ms | 4x |
+| Rolling Mean | ~15ms | ~4ms | 3.8x |
+
 ### Core Parameters
 
 ```json

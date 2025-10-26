@@ -3,7 +3,7 @@
 # Core data and analysis
 yfinance>=0.2.18
 pandas>=2.0.0
-polars>=0.20.0
+polars>=0.20.0,<1.0.0
 numpy>=1.24.0
 scipy>=1.10.0
 
@@ -14,6 +14,9 @@ optuna>=3.0.0
 
 # Advanced backtesting
 vectorbt>=0.28.0
+
+# Hyperparameter optimization
+optuna>=3.0.0
 
 # Google Trends data
 pytrends>=4.9.2
@@ -54,7 +57,9 @@ pytest-cov>=4.1.0
 responses>=0.24.0
 pytest-mock>=3.10.0
 
-# Development
-black>=23.0.0
-flake8>=6.0.0
-mypy>=1.5.0
+# Development and code quality
+ruff>=0.6.0
+mypy>=1.11.0
+bandit>=1.7.0
+pre-commit>=3.0.0
+commitizen>=3.29.0

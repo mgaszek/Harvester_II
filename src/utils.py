@@ -3,7 +3,6 @@ Utility functions for Harvester II trading system.
 Helper functions for data processing, calculations, and system utilities.
 """
 
-import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 import logging
@@ -12,106 +11,103 @@ import json
 import os
 from pathlib import Path
 
+# Import data processing abstraction layer
+from data_processing import (
+    DataProcessor, create_dataframe, create_series,
+    calculate_z_score as dp_calculate_z_score,
+    calculate_correlation, calculate_returns as dp_calculate_returns,
+    calculate_volatility as dp_calculate_volatility,
+    calculate_sharpe_ratio, calculate_max_drawdown
+)
 
 
-def calculate_returns(prices: pd.Series, periods: int = 1) -> pd.Series:
+
+def calculate_returns(prices, periods: int = 1):
     """
     Calculate returns for a price series.
-    
+
     Args:
-        prices: Price series
+        prices: Price series (pandas or polars)
         periods: Number of periods for return calculation
-        
+
     Returns:
         Series with returns
     """
-    return prices.pct_change(periods)
+    return dp_calculate_returns(prices, method='simple')
 
 
-def calculate_volatility(returns: pd.Series, window: int = 14) -> pd.Series:
+def calculate_volatility(returns, window: int = 14):
     """
     Calculate rolling volatility.
-    
+
     Args:
-        returns: Returns series
+        returns: Returns series (pandas or polars)
         window: Rolling window size
-        
+
     Returns:
         Series with volatility
     """
-    return returns.rolling(window=window).std()
+    return dp_calculate_volatility(returns, annualize=False)  # Return raw volatility
 
 
-def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, 
-                 window: int = 14) -> pd.Series:
+def calculate_atr(high, low, close, window: int = 14):
     """
     Calculate Average True Range (ATR).
-    
+
     Args:
-        high: High prices
-        low: Low prices
-        close: Close prices
+        high: High prices (pandas or polars)
+        low: Low prices (pandas or polars)
+        close: Close prices (pandas or polars)
         window: Rolling window size
-        
+
     Returns:
         Series with ATR values
     """
     high_low = high - low
-    high_close = np.abs(high - close.shift())
-    low_close = np.abs(low - close.shift())
-    
-    true_range = np.maximum(high_low, np.maximum(high_close, low_close))
-    return true_range.rolling(window=window).mean()
+
+    if DataProcessor.get_backend() == 'polars':
+        # Polars operations
+        high_close = (high - close.shift(1)).abs()
+        low_close = (low - close.shift(1)).abs()
+        true_range = np.maximum(high_low, np.maximum(high_close, low_close))
+        return DataProcessor.rolling_mean(true_range, window)
+    else:
+        # Pandas operations
+        high_close = np.abs(high - close.shift())
+        low_close = np.abs(low - close.shift())
+        true_range = np.maximum(high_low, np.maximum(high_close, low_close))
+        return true_range.rolling(window=window).mean()
 
 
-def calculate_z_score(value: float, series: pd.Series) -> float:
+def calculate_z_score(value: float, series) -> float:
     """
     Calculate z-score for a value against a series.
-    
+
     Args:
         value: Current value
-        series: Historical series
-        
+        series: Historical series (pandas or polars)
+
     Returns:
         Z-score
     """
-    if len(series) < 2:
-        return 0.0
-    
-    mean_val = series.mean()
-    std_val = series.std()
-    
-    if std_val == 0:
-        return 0.0
-    
-    return (value - mean_val) / std_val
+    return dp_calculate_z_score(value, series)
 
 
-def calculate_correlation(series1: pd.Series, series2: pd.Series) -> float:
+def calculate_correlation(series1, series2) -> float:
     """
     Calculate correlation between two series.
-    
+
     Args:
-        series1: First series
-        series2: Second series
-        
+        series1: First series (pandas or polars)
+        series2: Second series (pandas or polars)
+
     Returns:
         Correlation coefficient
     """
-    try:
-        # Align series by index
-        aligned = pd.concat([series1, series2], axis=1).dropna()
-        
-        if len(aligned) < 2:
-            return 0.0
-        
-        return aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
-    except Exception:
-        return 0.0
+    return calculate_correlation(series1, series2)
 
 
-def align_data_by_date(df1: pd.DataFrame, df2: pd.DataFrame, 
-                      date_col: str = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def align_data_by_date(df1, df2, date_col: str = None):
     """
     Align two DataFrames by date.
     
@@ -152,7 +148,7 @@ def align_data_by_date(df1: pd.DataFrame, df2: pd.DataFrame,
         return pd.DataFrame(), pd.DataFrame()
 
 
-def calculate_performance_metrics(equity_curve: pd.Series) -> Dict[str, float]:
+def calculate_performance_metrics(equity_curve) -> Dict[str, float]:
     """
     Calculate performance metrics from equity curve.
     
@@ -245,14 +241,14 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
         Division result or default
     """
     try:
-        if denominator == 0 or pd.isna(denominator):
+        if denominator == 0 or DataProcessor.isna(denominator):
             return default
         return numerator / denominator
     except Exception:
         return default
 
 
-def validate_data_quality(data: pd.DataFrame, required_columns: List[str] = None) -> bool:
+def validate_data_quality(data, required_columns: List[str] = None) -> bool:
     """
     Validate data quality for trading.
     

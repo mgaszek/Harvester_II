@@ -7,45 +7,19 @@ Volatility and attention-driven trading system
 import sys
 import argparse
 from pathlib import Path
-from loguru import logger
 
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from di import create_trading_engine
-
-
-def setup_logging():
-    """Setup Loguru structured logging configuration."""
-    # Remove default logger
-    logger.remove()
-
-    # Add console handler with JSON format for structured logging
-    logger.add(
-        sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level="INFO",
-        serialize=False  # Set to True for JSON output
-    )
-
-    # Add file handler
-    log_path = Path("logs/harvester_ii.log")
-    log_path.parent.mkdir(exist_ok=True)
-    logger.add(
-        log_path,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}",
-        level="DEBUG",
-        rotation="10 MB",
-        retention="1 week",
-        serialize=False
-    )
+from logging_config import setup_logging, harvester_logger as logger
 
 
 def main():
     """Main entry point for Harvester II trading system."""
     parser = argparse.ArgumentParser(description='Harvester II Trading System')
-    parser.add_argument('--mode', choices=['live', 'backtest', 'ab-test', 'walk-forward', 'survivor-free', 'bias-check', 'status', 'metrics'],
-                       default='live', help='Trading mode')
+    parser.add_argument('--mode', choices=['live', 'backtest', 'ab-test', 'walk-forward', 'survivor-free', 'bias-check', 'status', 'metrics', 'optimize'],
+                        default='live', help='Trading mode')
     parser.add_argument('--start-date', help='Backtest start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', help='Backtest end date (YYYY-MM-DD)')
     parser.add_argument('--config', default='config.json',
@@ -238,7 +212,32 @@ def main():
                 else:
                     print("\\nOK: No significant biases detected")
 
-                logger.info("Bias analysis completed", recommendations=len(recommendations))
+        elif args.mode == 'optimize':
+            logger.info("Starting hyperparameter optimization mode", start_date=args.start_date, end_date=args.end_date)
+            results = engine.run_hyperparameter_optimization(args.start_date, args.end_date)
+
+            if 'error' in results:
+                logger.error("Optimization failed", error=results['error'])
+            else:
+                print("\\n=== Hyperparameter Optimization Results ===")
+                print(f"Best Sharpe Ratio: {results.get('best_sharpe_ratio', 0):.3f}")
+                print(f"Optimization Trials: {results.get('optimization_trials', 0)}")
+
+                best_params = results.get('best_parameters', {})
+                if best_params:
+                    print("\\n--- Optimized Parameters ---")
+                    for param, value in best_params.items():
+                        print(f"  {param}: {value}")
+
+                final_results = results.get('final_backtest_results', {})
+                if 'capital' in final_results:
+                    capital = final_results['capital']
+                    print("\\n--- Final Backtest Results ---")
+                    print(f"  Total Return: {capital.get('total_return', 0):.2%}")
+                    print(f"  Sharpe Ratio: {capital.get('sharpe_ratio', 0):.3f}")
+                    print(f"  Max Drawdown: {capital.get('max_drawdown', 0):.2%}")
+
+                logger.info("Optimization completed", best_sharpe=results.get('best_sharpe_ratio', 0))
 
         elif args.mode == 'status':
             logger.info("Getting system status")

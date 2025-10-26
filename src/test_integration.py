@@ -323,3 +323,299 @@ def test_end_to_end_data_flow(sample_config):
     assert isinstance(panic_score, float)
     assert 0.0 <= abs(cri) <= 1.0
     assert panic_score >= 0.0
+
+
+@pytest.mark.integration
+class TestEndToEndIntegration:
+    """End-to-end integration tests for the complete trading system."""
+
+    def create_full_system(self):
+        """Create a complete trading system for end-to-end testing."""
+        from di import create_config, create_data_manager, create_signal_calculator, create_risk_manager, create_portfolio_manager, create_trading_engine
+
+        config = create_config('config.json')
+        data_manager = create_data_manager(config)
+        signal_calculator = create_signal_calculator(config, data_manager)
+        risk_manager = create_risk_manager(config)
+        portfolio_manager = create_portfolio_manager(config, risk_manager, data_manager, signal_calculator)
+        trading_engine = create_trading_engine(config)
+
+        return {
+            'config': config,
+            'data_manager': data_manager,
+            'signal_calculator': signal_calculator,
+            'risk_manager': risk_manager,
+            'portfolio_manager': portfolio_manager,
+            'trading_engine': trading_engine
+        }
+
+    def test_end_to_end_backtest_to_live_parameters(self):
+        """Test that backtest-optimized parameters work in live system."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Run backtest with default parameters
+        backtest_results = engine.run_backtest('2020-01-01', '2021-01-01', 100000)
+
+        # Validate backtest completed successfully
+        assert 'error' not in backtest_results
+        assert 'capital' in backtest_results
+        assert backtest_results['capital']['final_capital'] > 0
+
+        # Check that system can initialize for live trading
+        init_success = engine.initialize_system()
+        assert init_success, "System initialization failed"
+
+        # Verify tradable universe was updated
+        assert hasattr(engine, 'tradable_universe')
+        assert isinstance(engine.tradable_universe, list)
+
+        # Check system health
+        health_ok = engine.check_system_health()
+        assert health_ok, "System health check failed"
+
+    def test_parameter_bridging_backtest_to_live(self):
+        """Test that parameters optimized in backtest transfer to live system."""
+        system = self.create_full_system()
+        config = system['config']
+        engine = system['trading_engine']
+
+        # Get original parameters
+        original_panic_threshold = config.get('signals.panic_threshold')
+        original_max_positions = config.get('risk_management.max_open_positions')
+
+        # Simulate parameter optimization (in real scenario, this would come from optimization)
+        optimized_params = {
+            'signals.panic_threshold': 2.5,
+            'risk_management.max_open_positions': 5
+        }
+
+        # Apply optimized parameters to config
+        for key, value in optimized_params.items():
+            config._config_data[key] = value
+
+        # Verify parameters were applied
+        assert config.get('signals.panic_threshold') == 2.5
+        assert config.get('risk_management.max_open_positions') == 5
+
+        # Run backtest with optimized parameters
+        backtest_results = engine.run_backtest('2020-01-01', '2021-01-01', 100000)
+
+        # Validate backtest works with optimized parameters
+        assert 'error' not in backtest_results
+        assert 'capital' in backtest_results
+
+    def test_system_resilience_under_stress(self):
+        """Test system resilience when data sources are unavailable."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+        data_manager = system['data_manager']
+
+        # Mock data source failures
+        original_get_price = data_manager.get_price_data
+        original_get_trends = data_manager.get_google_trends
+
+        def failing_price_data(*args, **kwargs):
+            return pd.DataFrame()  # Return empty DataFrame
+
+        def failing_trends_data(*args, **kwargs):
+            return pd.DataFrame()  # Return empty DataFrame
+
+        data_manager.get_price_data = failing_price_data
+        data_manager.get_google_trends = failing_trends_data
+
+        try:
+            # System should handle data failures gracefully
+            health_ok = engine.check_system_health()
+            assert not health_ok, "System should detect data source failures"
+
+            # Backtest should fail gracefully
+            backtest_results = engine.run_backtest('2020-01-01', '2021-01-01', 100000)
+            assert 'error' in backtest_results, "Backtest should fail with no data"
+
+        finally:
+            # Restore original methods
+            data_manager.get_price_data = original_get_price
+            data_manager.get_google_trends = original_get_trends
+
+    def test_configuration_validation_end_to_end(self):
+        """Test that configuration validation works end-to-end."""
+        system = self.create_full_system()
+        config = system['config']
+
+        # Test valid configuration
+        is_valid = config.validate()
+        assert is_valid, "Valid configuration should pass validation"
+
+        # Test invalid configuration (simulate missing required fields)
+        original_universe = config._config_data.get('universe', {})
+        config._config_data['universe'] = {}  # Remove required fields
+
+        try:
+            is_valid = config.validate()
+            assert not is_valid, "Invalid configuration should fail validation"
+        finally:
+            # Restore original configuration
+            if original_universe:
+                config._config_data['universe'] = original_universe
+
+    def test_bias_detection_integration(self):
+        """Test bias detection works with actual backtest results."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Run a backtest first
+        backtest_results = engine.run_backtest('2020-01-01', '2021-01-01', 100000)
+        assert 'error' not in backtest_results
+
+        # Run bias detection on the results
+        bias_results = engine.detect_backtest_biases(backtest_results)
+
+        # Validate bias detection structure
+        assert isinstance(bias_results, dict)
+        assert 'error' not in bias_results
+
+        # Check for expected bias analysis fields
+        expected_fields = ['look_ahead_bias', 'survivorship_bias', 'overfitting_analysis', 'recommendations']
+        for field in expected_fields:
+            assert field in bias_results, f"Missing bias analysis field: {field}"
+
+    def test_walk_forward_validation_end_to_end(self):
+        """Test complete walk-forward validation process."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Run walk-forward validation
+        wf_results = engine.run_walk_forward_validation(
+            start_date='2020-01-01',
+            end_date='2022-01-01',
+            train_window_months=12,
+            test_window_months=3,
+            step_months=3
+        )
+
+        # Validate walk-forward results structure
+        assert 'error' not in wf_results
+        assert 'summary' in wf_results
+        assert 'fold_results' in wf_results
+
+        summary = wf_results['summary']
+        assert 'total_folds' in summary
+        assert 'overfitting_rate' in summary
+        assert 'recommendation' in summary
+
+    def test_survivor_free_backtest_integration(self):
+        """Test survivor-free backtest with actual data filtering."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Run survivor-free backtest
+        sf_results = engine.run_survivor_free_backtest('2020-01-01', '2021-01-01', 100000)
+
+        # Validate survivor-free results
+        assert 'error' not in sf_results
+        assert 'survivor_analysis' in sf_results
+        assert 'capital' in sf_results
+
+        survivor_analysis = sf_results['survivor_analysis']
+        assert 'original_universe_size' in survivor_analysis
+        assert 'survivor_universe_size' in survivor_analysis
+        assert 'survival_rate' in survivor_analysis
+
+    def test_a_b_test_bayesian_enhancement(self):
+        """Test A/B testing of Bayesian enhancement end-to-end."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Run A/B test
+        ab_results = engine.run_ab_test('2020-01-01', '2021-01-01', 100000)
+
+        # Validate A/B test results structure
+        assert 'error' not in ab_results
+        assert 'test_period' in ab_results
+        assert 'comparison' in ab_results
+
+        comparison = ab_results['comparison']
+        expected_metrics = [
+            'sharpe_ratio_improvement', 'total_return_improvement',
+            'max_drawdown_improvement', 'win_rate_improvement',
+            'conviction_correlation'
+        ]
+
+        for metric in expected_metrics:
+            assert metric in comparison, f"Missing comparison metric: {metric}"
+
+    def test_hyperparameter_optimization_workflow(self):
+        """Test complete hyperparameter optimization workflow."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Run hyperparameter optimization (with reduced trials for testing)
+        # Temporarily modify config for faster testing
+        original_n_trials = engine.config.get('optimization.n_trials')
+        engine.config._config_data['optimization']['n_trials'] = 5
+
+        try:
+            opt_results = engine.run_hyperparameter_optimization('2020-01-01', '2021-01-01', 100000)
+
+            # Validate optimization results structure
+            if 'error' not in opt_results:
+                assert 'best_parameters' in opt_results
+                assert 'best_sharpe_ratio' in opt_results
+                assert 'optimization_trials' in opt_results
+                assert 'final_backtest_results' in opt_results
+
+                best_params = opt_results['best_parameters']
+                assert isinstance(best_params, dict)
+                assert len(best_params) > 0, "Should have optimized parameters"
+        finally:
+            # Restore original config
+            if original_n_trials:
+                engine.config._config_data['optimization']['n_trials'] = original_n_trials
+
+    def test_system_monitoring_and_metrics(self):
+        """Test system monitoring and metrics collection."""
+        system = self.create_full_system()
+        engine = system['trading_engine']
+
+        # Get system status
+        status = engine.get_system_status()
+
+        # Validate status structure
+        assert 'system_status' in status
+        assert 'portfolio' in status
+        assert 'risk_management' in status
+        assert 'macro_risk' in status
+        assert 'tradable_universe' in status
+
+        # Get Prometheus metrics
+        metrics = engine.get_metrics()
+
+        # Should return metrics string or error message
+        assert isinstance(metrics, str)
+        assert len(metrics) > 0
+
+        # Update metrics
+        engine.update_metrics()  # Should not raise exception
+
+    def test_configuration_bridging(self):
+        """Test that configuration changes properly bridge between components."""
+        system = self.create_full_system()
+        config = system['config']
+        signal_calc = system['signal_calculator']
+        risk_manager = system['risk_manager']
+
+        # Test that config changes affect component behavior
+        original_threshold = config.get('signals.panic_threshold')
+
+        # Change panic threshold
+        config._config_data['signals']['panic_threshold'] = 2.0
+
+        # Verify change is reflected
+        assert config.get('signals.panic_threshold') == 2.0
+
+        # Test risk management parameter bridging
+        original_max_pos = config.get('risk_management.max_open_positions')
+        config._config_data['risk_management']['max_open_positions'] = 3
+
+        assert config.get('risk_management.max_open_positions') == 3

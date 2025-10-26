@@ -20,26 +20,34 @@ Updated October 26, 2025: Infused with the Inquisition's rites. Numbered for tra
 
 **COMPLETED**: Successfully integrated vectorbt library for advanced backtesting capabilities. Added vectorbt support to requirements.txt, created VectorbtBacktestEngine class with signal generation and portfolio analysis, integrated CLI support with --vectorbt flag, added comprehensive test suite, and configured backtesting options. Vectorbt provides vectorized operations for significantly improved performance over custom implementations. The integration includes proper fallback to custom engine when vectorbt encounters compatibility issues.
 
-4. **Expand Testing with Adaptation Loop** (High, 10-15 hours) [ ]  
-   90% cov (pytest-cov); bias/e2e assertions; bridge backtest to live params.  
+4. ✅ **Expand Testing with Adaptation Loop** (High, 10-15 hours) - COMPLETED
+   90% cov (pytest-cov); bias/e2e assertions; bridge backtest to live params.
    - Approach: pytest.ini cov; test_integration.py cycles; optuna feedback in engine.py (Rite of Adaptation).
 
-5. **Optimize Data Processing Fully** (High, 6-8 hours) [ ]  
-   Mandate Polars.  
+**COMPLETED**: Dramatically expanded testing framework with Optuna hyperparameter optimization, comprehensive end-to-end integration tests, and improved test coverage. Added optimization module with parameter tuning, CLI support for optimization mode, and extensive integration tests covering system resilience, parameter bridging, and full workflow validation.
+
+5. ✅ **Optimize Data Processing Fully** (High, 6-8 hours) - COMPLETED
+   Mandate Polars.
    - Approach: utils.py/signals.py migrate; requirements.txt pin; README benchmark.
+
+**COMPLETED**: Implemented comprehensive data processing abstraction layer supporting both pandas and polars backends. Created `data_processing.py` with unified API, migrated key functions in `utils.py` and `signals.py`, added polars to requirements.txt with version pinning, created benchmark script, and updated README with performance comparisons. System can now seamlessly switch between pandas (default) and polars for optimal performance.
 
 6. ✅ **Eliminate Duplication and Refine Logic (Quickening Rite)** (Medium, 4-6 hours) - COMPLETED
    Centralize utils.py; add Bayesian State Machine for conviction.
    - Approach: Merge validations; hmmlearn/scikit-learn probs in signals.py (IF/THEN → predict_proba >0.7); requirements.txt add.
    - **COMPLETED**: Added BayesianStateMachine class with HMM for market state modeling (calm/volatile/panic). Centralized validation functions in utils.py. Replaced hard-coded IF/THEN logic with probabilistic conviction assessment using predict_proba > 0.7 threshold. Added fallback to rule-based logic when HMM unavailable.
 
-7. **Standardize Logging/Monitoring** (Medium, 3-5 hours) [ ]  
-   Loguru global; JSON toggle.  
+7. ✅ **Standardize Logging/Monitoring** (Medium, 3-5 hours) - COMPLETED
+   Loguru global; JSON toggle.
    - Approach: Replace getLogger; Prometheus gauges (bias/conviction).
 
-8. **Documentation and Style Polish (Anointment Rite)** (Medium, 3-5 hours) [ ]  
-   Pre-commit Ruff/etc.; README tuning/API guide.  
+**COMPLETED**: Implemented comprehensive logging/monitoring system with Loguru for structured logging (JSON toggle support), Prometheus metrics for bias/conviction monitoring, and standardized logging across all modules. Added 30+ metrics including portfolio, risk, performance, and bias detection gauges.
+
+8. ✅ **Documentation and Style Polish (Anointment Rite)** (Medium, 3-5 hours) - COMPLETED
+   Pre-commit Ruff/etc.; README tuning/API guide.
    - Approach: .pre-commit-config.yaml; CRI examples/schema.
+
+**COMPLETED**: Implemented comprehensive code quality infrastructure with Ruff linting/formatting, MyPy type checking, Bandit security scanning, pre-commit hooks, and conventional commits. Added detailed API documentation with CRI examples, configuration schema, and developer setup guide.
 
 9. **Add Advanced Features** (Low, 10-20 hours) [ ]  
    Ccxt multi-exchange; webhooks/Plotly reports; GitHub Actions CI.  
@@ -136,3 +144,28 @@ Add "Bayesian Quickening v3" section: Usage, priors tuning example.
 Approach: Include code snippet; badge for "BSM Enabled".
 
 **COMPLETED**: Enhanced README with "Bayesian Quickening v3" section, comprehensive configuration examples, usage snippets for prior optimization and A/B testing, and monitoring examples.
+
+12. Post-v3 To-Do: Temper the Seer (2-4 Hours)
+
+Benchmark & Auto-Downgrade (45 min) [ ]
+utils.py perf timer on fit; if >0.1s, config 'cov_type'='diag'.
+
+Approach: signals.py wrap predict_conviction; log "Downgraded for perf".
+
+
+Dynamic Priors/Buffer (45 min) [ ]
+config.json asset priors (e.g., {'crypto': [0.2, 0.5, 0.3]}); buffer_size=20 tunable.
+
+Approach: bayesian_state.py load per-symbol; test_signals.py param asset mocks.
+
+
+A/B Backtest Assert (45 min) [ ]
+test_backtest.py: Dual run (v3 on/off); assert Sharpe_v3 > Sharpe_v2 +0.05.
+
+Approach: @parametrize('bsm_version', ['v2', 'v3']); mock historical.
+
+
+README & Logging (30 min) [ ]
+Add "v3 Enhancements" section: Decay example, priors tuning. Log probs in engine.py.
+
+Approach: Loguru: "Conviction {c:.2f} (probs: {p})"; Prometheus vec.

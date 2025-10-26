@@ -6,27 +6,16 @@ Orchestrates the daily trading loop and coordinates all components.
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any
-from loguru import logger
 import requests
 from datetime import datetime, timedelta
 import time
 import schedule
 import sqlite3
-import logging
 from pathlib import Path
 
 from config import SensitiveDataFilter
-
-# Import Prometheus metrics
-try:
-    from prometheus_client import Gauge, start_http_server, CollectorRegistry, generate_latest
-    PROMETHEUS_AVAILABLE = True
-except ImportError:
-    PROMETHEUS_AVAILABLE = False
-    Gauge = None
-    start_http_server = None
-    CollectorRegistry = None
-    generate_latest = None
+from logging_config import setup_logging, harvester_logger as logger, log_system_status, log_trading_signal, log_performance_metrics, log_bias_analysis
+from monitoring import get_metrics, init_metrics
 
 
 class TradingEngine:
@@ -39,13 +28,12 @@ class TradingEngine:
         self.signal_calculator = signal_calculator
         self.risk_manager = risk_manager
         self.portfolio_manager = portfolio_manager
-        self.logger = logging.getLogger(__name__)
-        
-        # Setup logging
+
+        # Setup standardized logging
         self._setup_logging()
 
-        # Setup Prometheus metrics
-        self._setup_metrics()
+        # Setup comprehensive monitoring
+        self._setup_monitoring()
 
         # Trading state
         self.is_running = False
@@ -59,32 +47,18 @@ class TradingEngine:
         logger.info("Trading Engine initialized")
     
     def _setup_logging(self) -> None:
-        """Setup Loguru structured logging configuration."""
-        log_config = self.config.logging
+        """Setup standardized logging configuration."""
+        log_config = self.config.get('logging', {})
 
-        # Create logs directory
-        log_path = Path(log_config.get('file_path', 'logs/harvester_ii.log'))
-        log_path.parent.mkdir(exist_ok=True)
-
-        # Configure Loguru with sensitive data filtering
-        logger.remove()  # Remove default handler
-
-        # Add file handler with rotation and sensitive data filtering
-        logger.add(
-            log_path,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}",
+        # Configure logging with JSON toggle support
+        setup_logging(
             level=log_config.get('level', 'INFO'),
-            rotation="10 MB",
-            retention="1 week",
-            filter=lambda record: self._filter_sensitive_data(record)
-        )
-
-        # Add console handler
-        logger.add(
-            lambda msg: print(msg, end=""),
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan> - <level>{message}</level>",
-            level=log_config.get('level', 'INFO'),
-            filter=lambda record: self._filter_sensitive_data(record)
+            json_format=log_config.get('json_format', False),
+            log_file=log_config.get('file_path', 'logs/harvester_ii.log'),
+            max_size=log_config.get('max_size', '10 MB'),
+            retention=log_config.get('retention', '1 week'),
+            enable_console=log_config.get('enable_console', True),
+            enable_file=log_config.get('enable_file', True)
         )
 
     def _filter_sensitive_data(self, record) -> bool:
@@ -100,67 +74,17 @@ class TradingEngine:
             return False
         return True
 
-    def _setup_metrics(self) -> None:
-        """Setup Prometheus metrics for monitoring."""
-        if not PROMETHEUS_AVAILABLE:
-            logger.warning("Prometheus client not available - metrics disabled")
-            self.metrics_enabled = False
-            return
+    def _setup_monitoring(self) -> None:
+        """Setup comprehensive monitoring with Prometheus metrics."""
+        monitoring_config = self.config.get('monitoring', {})
+        metrics_port = monitoring_config.get('prometheus_port', 8000)
 
-        try:
-            # Create metrics registry
-            self.metrics_registry = CollectorRegistry()
-
-            # Define metrics
-            self.equity_gauge = Gauge(
-                'harvester_equity_total',
-                'Total portfolio equity in USD',
-                registry=self.metrics_registry
-            )
-
-            self.drawdown_gauge = Gauge(
-                'harvester_drawdown_percentage',
-                'Current portfolio drawdown as percentage',
-                registry=self.metrics_registry
-            )
-
-            self.positions_gauge = Gauge(
-                'harvester_positions_open',
-                'Number of open positions',
-                registry=self.metrics_registry
-            )
-
-            self.daily_pnl_gauge = Gauge(
-                'harvester_daily_pnl',
-                'Daily profit and loss in USD',
-                registry=self.metrics_registry
-            )
-
-            self.g_score_gauge = Gauge(
-                'harvester_g_score',
-                'Current G-Score for macro risk assessment',
-                registry=self.metrics_registry
-            )
-
-            self.conviction_gauge = Gauge(
-                'harvester_signal_conviction',
-                'Current signal conviction level (0.0-1.0)',
-                registry=self.metrics_registry
-            )
-
-            # Start metrics server
-            metrics_port = self.config.get('monitoring.prometheus_port', 8000)
-            start_http_server(metrics_port, registry=self.metrics_registry)
-            logger.info(f"Prometheus metrics server started on port {metrics_port}")
-
-            self.metrics_enabled = True
-
-        except Exception as e:
-            logger.error(f"Failed to setup Prometheus metrics: {e}")
-            self.metrics_enabled = False
+        # Initialize metrics and start server
+        self.metrics = init_metrics(port=metrics_port)
+        self.metrics_enabled = self.metrics.enabled
 
     def update_metrics(self) -> None:
-        """Update Prometheus metrics with current system state."""
+        """Update comprehensive monitoring metrics."""
         if not self.metrics_enabled:
             return
 
@@ -168,32 +92,29 @@ class TradingEngine:
             # Get current system status
             status = self.get_system_status()
 
-            # Update metrics
+            # Update core metrics
             portfolio = status.get('portfolio', {})
             risk = status.get('risk_management', {})
             macro = status.get('macro_risk', {})
 
-            self.equity_gauge.set(portfolio.get('current_equity', 0))
-            self.drawdown_gauge.set(risk.get('current_drawdown', 0))
-            self.positions_gauge.set(portfolio.get('open_positions', 0))
-            self.daily_pnl_gauge.set(portfolio.get('daily_pnl', 0))
-            self.g_score_gauge.set(macro.get('g_score', 0))
-            # Update conviction gauge with most recent signal conviction (default to 0.5 if no recent signals)
-            self.conviction_gauge.set(getattr(self, '_last_conviction', 0.5))
+            self.metrics.update_portfolio_metrics(portfolio)
+            self.metrics.update_risk_metrics(risk)
+            self.metrics.update_macro_metrics(macro)
+            self.metrics.update_system_health(status)
+
+            # Update conviction gauge with most recent signal conviction
+            conviction = getattr(self, '_last_conviction', 0.5)
+            self.metrics.update_signal_metrics(conviction=conviction)
+
+            # Log structured system status
+            log_system_status(status)
 
         except Exception as e:
             logger.error(f"Failed to update metrics: {e}")
 
     def get_metrics(self) -> str:
         """Get current metrics in Prometheus format."""
-        if not self.metrics_enabled:
-            return "# Metrics not available - Prometheus client not installed"
-
-        try:
-            return generate_latest(self.metrics_registry).decode('utf-8')
-        except Exception as e:
-            logger.error(f"Failed to generate metrics: {e}")
-            return f"# Error generating metrics: {e}"
+        return self.metrics.get_metrics_text()
 
     def initialize_system(self) -> bool:
         """
@@ -356,8 +277,8 @@ class TradingEngine:
                 # Store last conviction for metrics
                 self._last_conviction = conviction
 
-                self.logger.info(f"Signal conviction {conviction:.2f} ({conviction_level}) for {symbol} "
-                               f"in {market_state} state via {assessment_method}")
+                # Log structured trading signal
+                log_trading_signal(symbol, "entry", conviction, market_state, assessment_method)
                 
                 # Skip if position already exists
                 if symbol in self.portfolio_manager.positions:
@@ -519,11 +440,9 @@ class TradingEngine:
             results = backtest_engine.run_backtest(start_date, end_date, initial_capital, use_vectorbt=use_vectorbt)
             
             if 'error' not in results:
-                self.logger.info("Backtest completed successfully")
-                self.logger.info(f"Total Return: {results.get('capital', {}).get('total_return', 0):.2%}")
-                self.logger.info(f"Max Drawdown: {results.get('capital', {}).get('max_drawdown', 0):.2%}")
-                self.logger.info(f"Total Trades: {results.get('trade_statistics', {}).get('total_trades', 0)}")
-            
+                logger.info("Backtest completed successfully")
+                log_performance_metrics(results, period="backtest")
+
             return results
             
         except (ValueError, TypeError) as e:
@@ -718,14 +637,10 @@ class TradingEngine:
             bias_analysis = backtest_engine.detect_backtest_biases(backtest_result)
 
             if 'error' not in bias_analysis:
-                self.logger.info("Bias analysis completed")
-                recommendations = bias_analysis.get('recommendations', [])
-                if recommendations:
-                    self.logger.warning(f"Bias analysis recommendations: {recommendations}")
-                else:
-                    self.logger.info("No significant biases detected")
+                logger.info("Bias analysis completed")
+                log_bias_analysis(bias_analysis)
             else:
-                self.logger.error(f"Bias analysis failed: {bias_analysis['error']}")
+                logger.error(f"Bias analysis failed: {bias_analysis['error']}")
 
             return bias_analysis
 
@@ -737,6 +652,50 @@ class TradingEngine:
             return {'error': str(e)}
         except Exception as e:
             self.logger.error(f"Unexpected error in bias detection: {e}")
+            return {'error': str(e)}
+
+    def run_hyperparameter_optimization(self, start_date: str = None, end_date: str = None,
+                                      initial_capital: float = 100000) -> Dict[str, Any]:
+        """
+        Run hyperparameter optimization using Optuna.
+
+        Args:
+            start_date: Optimization start date (YYYY-MM-DD)
+            end_date: Optimization end date (YYYY-MM-DD)
+            initial_capital: Starting capital
+
+        Returns:
+            Dictionary with optimization results
+        """
+        try:
+            # Import optimization module
+            from optimization import get_optimizer
+
+            # Get optimizer instance
+            optimizer = get_optimizer(
+                self.config, self.data_manager, self.signal_calculator,
+                self.risk_manager, self.backtest_engine
+            )
+
+            # Run optimization
+            results = optimizer.optimize_parameters(start_date, end_date, initial_capital)
+
+            if 'error' not in results:
+                self.logger.info("Hyperparameter optimization completed successfully")
+                best_params = results.get('best_parameters', {})
+                best_sharpe = results.get('best_sharpe_ratio', 0)
+                self.logger.info(f"Best Sharpe ratio: {best_sharpe:.3f}")
+                self.logger.info(f"Optimized parameters: {best_params}")
+            else:
+                self.logger.error(f"Hyperparameter optimization failed: {results['error']}")
+
+            return results
+
+        except (ImportError, ModuleNotFoundError) as e:
+            self.logger.error(f"Optuna not available for optimization: {e}")
+            return {'error': 'Optuna not installed'}
+        except Exception as e:
+            self.logger.error(f"Unexpected error in optimization: {e}")
             return {'error': str(e)}
 
     def _calculate_max_drawdown(self, equity_series: pd.Series) -> float:

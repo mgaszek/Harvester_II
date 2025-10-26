@@ -65,6 +65,7 @@ data/*.sqlite3
 .coverage
 htmlcov/
 .pytest_cache/
+.coverage.*
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -124,6 +125,13 @@ htmlcov/
 # Documentation
 docs/_build/
 *.md.bak
+
+# Pre-commit and development
+.pre-commit-config.yaml.bak
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
 
 # Temporary files
 *.tmp
