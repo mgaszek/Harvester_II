@@ -6,7 +6,7 @@
     "timeframe": "daily",
     "lookback_window": 90
   },
-  
+
   "universe": {
     "assets": [
       "SPY", "QQQ", "GLD", "SLV", "TLT", "IWM", "EFA", "EEM",
@@ -17,7 +17,7 @@
     "cri_threshold": 0.4,
     "max_universe_size": 30
   },
-  
+
   "signals": {
     "panic_threshold": 3.0,
     "indicators": {
@@ -32,7 +32,7 @@
       "trends_weight": 0.8
     }
   },
-  
+
   "risk_management": {
     "equity": 100000,
     "base_position_fraction": 0.005,
@@ -52,7 +52,7 @@
       "update_frequency": "daily"
     }
   },
-  
+
   "macro_risk": {
     "g_score_threshold": 2,
     "indicators": {
@@ -66,7 +66,7 @@
       "normal_risk": 1.0
     }
   },
-  
+
   "data_sources": {
     "price_data": {
       "provider": "yahoo_finance",
@@ -82,7 +82,7 @@
       "oil_symbol": "USO"
     }
   },
-  
+
   "trading": {
     "execution": {
       "order_type": "market",
@@ -99,14 +99,7 @@
       "price_change_lookback": 5
     }
   },
-  
-  "logging": {
-    "level": "INFO",
-    "file_path": "logs/harvester_ii.log",
-    "max_file_size": "10MB",
-    "backup_count": 5
-  },
-  
+
   "database": {
     "encrypted": false,
     "backup_enabled": true,
@@ -120,8 +113,17 @@
     "cache_max_size": 1000
   },
 
+  "logging": {
+    "level": "INFO",
+    "json_format": false,
+    "file_path": "logs/harvester_ii.log",
+    "max_size": "10 MB",
+    "retention": "1 week",
+    "enable_console": true,
+    "enable_file": true
+  },
+
   "monitoring": {
-    "prometheus_enabled": true,
     "prometheus_port": 8000,
     "metrics_update_interval": 60
   },
@@ -137,13 +139,30 @@
       "webhook_url": ""
     }
   },
-  
+
   "backtesting": {
     "start_date": "2020-01-01",
     "end_date": "2024-01-01",
     "initial_capital": 100000,
     "benchmark": "SPY",
-    "historical_trends_csv": null
+    "historical_trends_csv": null,
+    "use_vectorbt": false
+  },
+
+  "optimization": {
+    "n_trials": 50,
+    "timeout_seconds": 1800,
+    "study_name": "harvester_ii_optimization"
+  },
+
+  "bayesian": {
+    "enabled": true,
+    "n_states": 3,
+    "conviction_threshold": 0.7,
+    "priors": [0.3, 0.4, 0.3],
+    "covariance_type": "full",
+    "training_samples": 1000,
+    "inference_timeout": 2.0
   }
-  
+
 }

@@ -1,0 +1,201 @@
+# Harvester II Project Configuration
+# Configuration for Ruff, MyPy, Bandit, and other development tools
+
+[tool.ruff]
+# Exclude files and directories
+exclude = [
+    "data/",
+    "logs/",
+    "venv/",
+    "__pycache__/",
+    ".git/",
+    ".vscode/",
+    ".idea/"
+]
+
+# Target Python version
+target-version = "py313"
+
+[tool.ruff.lint]
+# Enable pycodestyle (`E`), Pyflakes (`F`), and isort (`I`) rules
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "N",      # pep8-naming
+    "YTT",    # flake8-2020
+    "S",      # flake8-bandit (security)
+    "BLE",    # flake8-blind-except
+    "FBT",    # flake8-boolean-trap
+    "A",      # flake8-builtins
+    "COM",    # flake8-commas
+    "C90",    # McCabe complexity
+    "DJ",     # flake8-django
+    "EM",     # flake8-errmsg
+    "EXE",    # flake8-executable
+    "FA",     # flake8-future-annotations
+    "ISC",    # flake8-implicit-str-concat
+    "ICN",    # flake8-import-conventions
+    "G",      # flake8-logging-format
+    "INP",    # flake8-no-pep420
+    "PIE",    # flake8-pie
+    "T10",    # flake8-debugger
+    "T20",    # flake8-print
+    "PYI",    # flake8-pyi
+    "PT",     # flake8-pytest-style
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "SLF",    # flake8-self
+    "SLOT",   # flake8-slots
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "TCH",    # flake8-type-checking
+    "INT",    # flake8-gettext
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "TD",     # flake8-todos
+    "FIX",    # flake8-fixme
+    "ERA",    # eradicate
+    "PD",     # pandas-vet
+    "PGH",    # pygrep-hooks
+    "PL",     # Pylint
+    "TRY",    # tryceratops
+    "FLY",    # flynt
+    "NPY",    # NumPy-specific rules
+    "AIR",    # airflow
+    "PERF",   # Perflint
+    "FURB",   # refurb
+    "LOG",    # flake8-logging
+    "RUF",    # Ruff-specific rules
+]
+
+# Ignore specific rules
+ignore = [
+    "S101",   # assert statements (we use them in tests)
+    "S104",   # binding to all interfaces (common in dev)
+    "COM812", # trailing comma missing (we prefer consistency)
+    "ISC001", # implicit string concatenation (sometimes clearer)
+    "T20",    # print statements (allowed in debug)
+    "FIX002", # TODO comments (we track them in ToDo.md)
+    "TD002",  # TODO format (we use our own format)
+    "TD003",  # TODO author (not required)
+    "ERA001", # commented out code (sometimes useful)
+    "PLR0913", # too many arguments (trading functions need them)
+    "PLR0912", # too many branches (complex logic required)
+    "PLR0915", # too many statements (long functions sometimes needed)
+    "PLR2004", # magic values (some are well-known constants)
+    "C901",   # complex structure (financial calculations)
+    "PLR0911", # too many return statements (sometimes clearer)
+    "FBT001", # boolean positional arg (sometimes needed)
+    "FBT002", # boolean default positional arg
+    "FBT003", # boolean positional arg in function definition
+]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided
+fixable = ["ALL"]
+unfixable = []
+
+# Configuration for specific rules
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can be more lenient
+"src/test_*.py" = ["S101", "PLR2004", "T20", "PLR0913"]
+"src/conftest.py" = ["S101", "PLR2004", "T20"]
+# Benchmarks may need prints
+"src/benchmark_*.py" = ["T20"]
+# Configuration files can have complex structures
+"config.json" = ["E501"]  # line too long
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-sort-within-sections = true
+split-on-trailing-comma = true
+
+[tool.ruff.format]
+# Same as Black
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = false  # Too strict for initial setup
+warn_unused_configs = true
+disallow_untyped_defs = false  # Allow gradual adoption
+disallow_incomplete_defs = false
+check_untyped_defs = false
+disallow_untyped_decorators = false
+no_implicit_optional = false
+warn_redundant_casts = false
+warn_unused_ignores = true
+warn_no_return = false
+warn_unreachable = false
+strict_equality = false
+ignore_missing_imports = true  # Handle missing imports gracefully
+
+[[tool.mypy.overrides]]
+module = [
+    "yfinance.*",
+    "pytrends.*",
+    "alpha_vantage.*",
+    "polars.*",
+    "loguru.*",
+    "prometheus_client.*",
+    "hmmlearn.*",
+    "vectorbt.*",
+    "optuna.*",
+    "data_processing.*"  # Our custom module
+]
+ignore_missing_imports = true
+
+# Bandit security linting
+[tool.bandit]
+exclude_dirs = ["tests", "data", "logs", "venv"]
+skips = ["B101", "B601"]  # assert statements, shell usage in controlled env
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/test_*",
+    "src/conftest.py",
+    "src/benchmark_*",
+    "venv/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["src"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "--verbose",
+    "--tb=short",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=90"
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests"
+]
