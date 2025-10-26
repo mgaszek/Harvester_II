@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import time
 import schedule
 import sqlite3
+import logging
 from pathlib import Path
 
 from config import SensitiveDataFilter
@@ -38,6 +39,7 @@ class TradingEngine:
         self.signal_calculator = signal_calculator
         self.risk_manager = risk_manager
         self.portfolio_manager = portfolio_manager
+        self.logger = logging.getLogger(__name__)
         
         # Setup logging
         self._setup_logging()
@@ -140,6 +142,12 @@ class TradingEngine:
                 registry=self.metrics_registry
             )
 
+            self.conviction_gauge = Gauge(
+                'harvester_signal_conviction',
+                'Current signal conviction level (0.0-1.0)',
+                registry=self.metrics_registry
+            )
+
             # Start metrics server
             metrics_port = self.config.get('monitoring.prometheus_port', 8000)
             start_http_server(metrics_port, registry=self.metrics_registry)
@@ -170,6 +178,8 @@ class TradingEngine:
             self.positions_gauge.set(portfolio.get('open_positions', 0))
             self.daily_pnl_gauge.set(portfolio.get('daily_pnl', 0))
             self.g_score_gauge.set(macro.get('g_score', 0))
+            # Update conviction gauge with most recent signal conviction (default to 0.5 if no recent signals)
+            self.conviction_gauge.set(getattr(self, '_last_conviction', 0.5))
 
         except Exception as e:
             logger.error(f"Failed to update metrics: {e}")
@@ -336,6 +346,18 @@ class TradingEngine:
             executed_orders = 0
             for signal in entry_signals:
                 symbol = signal['symbol']
+
+                # Log conviction level for monitoring
+                conviction = signal.get('confidence', 0.0)
+                conviction_level = signal.get('conviction_level', 'unknown')
+                market_state = signal.get('market_state', 'unknown')
+                assessment_method = signal.get('assessment_method', 'unknown')
+
+                # Store last conviction for metrics
+                self._last_conviction = conviction
+
+                self.logger.info(f"Signal conviction {conviction:.2f} ({conviction_level}) for {symbol} "
+                               f"in {market_state} state via {assessment_method}")
                 
                 # Skip if position already exists
                 if symbol in self.portfolio_manager.positions:
@@ -468,14 +490,15 @@ class TradingEngine:
             self.logger.error(f"Unexpected error getting system status: {e}")
             return {}
     
-    def run_backtest(self, start_date: str = None, end_date: str = None) -> Dict[str, Any]:
+    def run_backtest(self, start_date: str = None, end_date: str = None, use_vectorbt: bool = None) -> Dict[str, Any]:
         """
         Run backtest of the trading system using the enhanced backtest engine.
-        
+
         Args:
             start_date: Start date for backtest (YYYY-MM-DD)
             end_date: End date for backtest (YYYY-MM-DD)
-            
+            use_vectorbt: Override config to use vectorbt (None = use config setting)
+
         Returns:
             Dictionary with backtest results
         """
@@ -493,7 +516,7 @@ class TradingEngine:
 
             # Use enhanced backtest engine with injected dependencies
             backtest_engine = BacktestEngine(self.config, self.data_manager, self.signal_calculator, self.risk_manager)
-            results = backtest_engine.run_backtest(start_date, end_date, initial_capital)
+            results = backtest_engine.run_backtest(start_date, end_date, initial_capital, use_vectorbt=use_vectorbt)
             
             if 'error' not in results:
                 self.logger.info("Backtest completed successfully")
@@ -512,7 +535,210 @@ class TradingEngine:
         except Exception as e:
             self.logger.error(f"Unexpected error in backtest: {e}")
             return {'error': str(e)}
-    
+
+    def run_ab_test(self, start_date: str = None, end_date: str = None) -> Dict[str, Any]:
+        """
+        Run A/B test comparing Bayesian State Machine enabled vs disabled.
+
+        Args:
+            start_date: Start date for backtest (YYYY-MM-DD)
+            end_date: End date for backtest (YYYY-MM-DD)
+
+        Returns:
+            Dictionary with A/B test results comparison
+        """
+        try:
+            # Import backtest engine
+            from backtest import BacktestEngine
+
+            # Get backtest parameters from config
+            backtest_config = self.config.backtesting
+            start_date = start_date or backtest_config.get('start_date', '2020-01-01')
+            end_date = end_date or backtest_config.get('end_date', '2024-01-01')
+            initial_capital = backtest_config.get('initial_capital', 100000)
+
+            self.logger.info(f"Starting A/B test: {start_date} to {end_date}")
+
+            # Use enhanced backtest engine with injected dependencies
+            backtest_engine = BacktestEngine(self.config, self.data_manager, self.signal_calculator, self.risk_manager)
+            results = backtest_engine.run_ab_test(start_date, end_date, initial_capital)
+
+            if 'error' not in results:
+                self.logger.info("A/B test completed successfully")
+                comparison = results.get('comparison', {})
+                if comparison:
+                    self.logger.info(f"Sharpe ratio improvement: {comparison.get('sharpe_ratio_improvement', 0):.3f}")
+                    self.logger.info(f"Total return improvement: {comparison.get('total_return_improvement', 0):.3f}")
+                    self.logger.info(f"Max drawdown improvement: {comparison.get('max_drawdown_improvement', 0):.3f}")
+            else:
+                self.logger.error(f"A/B test failed: {results['error']}")
+
+            return results
+
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Data/configuration error in A/B test: {e}")
+            return {'error': str(e)}
+        except (ImportError, ModuleNotFoundError) as e:
+            self.logger.error(f"Module import error in A/B test: {e}")
+            return {'error': str(e)}
+        except Exception as e:
+            self.logger.error(f"Unexpected error in A/B test: {e}")
+            return {'error': str(e)}
+
+    def run_walk_forward_validation(self, start_date: str = None, end_date: str = None,
+                                   train_window_months: int = 12, test_window_months: int = 3,
+                                   step_months: int = 1) -> Dict[str, Any]:
+        """
+        Run walk-forward validation to detect overfitting and look-ahead bias.
+
+        Args:
+            start_date: Start date for validation (YYYY-MM-DD)
+            end_date: End date for validation (YYYY-MM-DD)
+            train_window_months: Training window in months
+            test_window_months: Testing window in months
+            step_months: Step size in months
+
+        Returns:
+            Dictionary with walk-forward validation results
+        """
+        try:
+            # Import backtest engine
+            from backtest import BacktestEngine
+
+            # Get validation parameters from config or use defaults
+            backtest_config = self.config.backtesting
+            start_date = start_date or backtest_config.get('start_date', '2020-01-01')
+            end_date = end_date or backtest_config.get('end_date', '2024-01-01')
+            initial_capital = backtest_config.get('initial_capital', 100000)
+
+            self.logger.info(f"Starting walk-forward validation: {start_date} to {end_date}")
+
+            # Use enhanced backtest engine with injected dependencies
+            backtest_engine = BacktestEngine(self.config, self.data_manager, self.signal_calculator, self.risk_manager)
+            results = backtest_engine.run_walk_forward_validation(
+                start_date, end_date, initial_capital,
+                train_window_months, test_window_months, step_months
+            )
+
+            if 'error' not in results:
+                self.logger.info("Walk-forward validation completed successfully")
+                summary = results.get('summary', {})
+                if summary:
+                    overfitting_rate = summary.get('overfitting_rate', 0)
+                    recommendation = summary.get('recommendation', '')
+                    self.logger.info(f"Overfitting rate: {overfitting_rate:.2f}, Recommendation: {recommendation}")
+            else:
+                self.logger.error(f"Walk-forward validation failed: {results['error']}")
+
+            return results
+
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Data/configuration error in walk-forward validation: {e}")
+            return {'error': str(e)}
+        except (ImportError, ModuleNotFoundError) as e:
+            self.logger.error(f"Module import error in walk-forward validation: {e}")
+            return {'error': str(e)}
+        except Exception as e:
+            self.logger.error(f"Unexpected error in walk-forward validation: {e}")
+            return {'error': str(e)}
+
+    def run_survivor_free_backtest(self, start_date: str = None, end_date: str = None) -> Dict[str, Any]:
+        """
+        Run survivor-free backtest to mitigate survivorship bias.
+
+        Args:
+            start_date: Start date for backtest (YYYY-MM-DD)
+            end_date: End date for backtest (YYYY-MM-DD)
+
+        Returns:
+            Dictionary with survivor-free backtest results
+        """
+        try:
+            # Import backtest engine
+            from backtest import BacktestEngine
+
+            # Get backtest parameters from config
+            backtest_config = self.config.backtesting
+            start_date = start_date or backtest_config.get('start_date', '2020-01-01')
+            end_date = end_date or backtest_config.get('end_date', '2024-01-01')
+            initial_capital = backtest_config.get('initial_capital', 100000)
+
+            self.logger.info(f"Starting survivor-free backtest: {start_date} to {end_date}")
+
+            # Use enhanced backtest engine with injected dependencies
+            backtest_engine = BacktestEngine(self.config, self.data_manager, self.signal_calculator, self.risk_manager)
+            results = backtest_engine.run_survivor_free_backtest(start_date, end_date, initial_capital)
+
+            if 'error' not in results:
+                self.logger.info("Survivor-free backtest completed successfully")
+                survivor_analysis = results.get('survivor_analysis', {})
+                if survivor_analysis:
+                    survival_rate = survivor_analysis.get('survival_rate', 0)
+                    self.logger.info(f"Survival rate: {survival_rate:.2f} "
+                                   f"({survivor_analysis.get('survivor_universe_size', 0)}/"
+                                   f"{survivor_analysis.get('original_universe_size', 0)} assets)")
+            else:
+                self.logger.error(f"Survivor-free backtest failed: {results['error']}")
+
+            return results
+
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Data/configuration error in survivor-free backtest: {e}")
+            return {'error': str(e)}
+        except (ImportError, ModuleNotFoundError) as e:
+            self.logger.error(f"Module import error in survivor-free backtest: {e}")
+            return {'error': str(e)}
+        except Exception as e:
+            self.logger.error(f"Unexpected error in survivor-free backtest: {e}")
+            return {'error': str(e)}
+
+    def detect_backtest_biases(self, backtest_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Analyze backtest results for common biases and issues.
+
+        Args:
+            backtest_result: Result from run_backtest (if None, runs a default backtest)
+
+        Returns:
+            Dictionary with bias analysis
+        """
+        try:
+            # Import backtest engine
+            from backtest import BacktestEngine
+
+            if backtest_result is None:
+                self.logger.info("Running default backtest for bias analysis")
+                backtest_result = self.run_backtest()
+
+            if 'error' in backtest_result:
+                return {'error': f"Cannot analyze biases - backtest failed: {backtest_result['error']}"}
+
+            # Use enhanced backtest engine for bias detection
+            backtest_engine = BacktestEngine(self.config, self.data_manager, self.signal_calculator, self.risk_manager)
+            bias_analysis = backtest_engine.detect_backtest_biases(backtest_result)
+
+            if 'error' not in bias_analysis:
+                self.logger.info("Bias analysis completed")
+                recommendations = bias_analysis.get('recommendations', [])
+                if recommendations:
+                    self.logger.warning(f"Bias analysis recommendations: {recommendations}")
+                else:
+                    self.logger.info("No significant biases detected")
+            else:
+                self.logger.error(f"Bias analysis failed: {bias_analysis['error']}")
+
+            return bias_analysis
+
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Data/configuration error in bias detection: {e}")
+            return {'error': str(e)}
+        except (ImportError, ModuleNotFoundError) as e:
+            self.logger.error(f"Module import error in bias detection: {e}")
+            return {'error': str(e)}
+        except Exception as e:
+            self.logger.error(f"Unexpected error in bias detection: {e}")
+            return {'error': str(e)}
+
     def _calculate_max_drawdown(self, equity_series: pd.Series) -> float:
         """Calculate maximum drawdown from equity series."""
         try:

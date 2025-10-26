@@ -15,6 +15,22 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 # Dependencies are now injected via constructor
 from utils import calculate_performance_metrics
 
+# Walk-forward validation imports
+try:
+    from sklearn.model_selection import TimeSeriesSplit
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    TimeSeriesSplit = None
+
+# Vectorbt integration
+try:
+    from vectorbt_backtest import get_vectorbt_backtest_engine
+    VECTORBT_INTEGRATION_AVAILABLE = True
+except ImportError:
+    VECTORBT_INTEGRATION_AVAILABLE = False
+    get_vectorbt_backtest_engine = None
+
 
 class BacktestEngine:
     """Comprehensive backtesting engine for Harvester II system."""
@@ -26,7 +42,7 @@ class BacktestEngine:
         self.signal_calculator = signal_calculator
         self.risk_manager = risk_manager
         self.logger = logging.getLogger(__name__)
-        
+
         # Backtest state
         self.initial_capital = 100000
         self.current_capital = 100000
@@ -35,34 +51,55 @@ class BacktestEngine:
         self.equity_curve = []
         self.daily_stats = []
         self.tradable_universe = []  # Initialize tradable universe
-        
+
         # Performance tracking
         self.peak_equity = 100000
         self.max_drawdown = 0.0
-        
+
         # Data cache for backtest
         self.price_data_cache = {}
         self.trends_data_cache = {}
 
         # Historical data paths
         self.historical_trends_path = self.config.get('backtesting.historical_trends_csv', None)
+
+        # Vectorbt integration
+        self.vectorbt_engine = None
+        if VECTORBT_INTEGRATION_AVAILABLE:
+            self.vectorbt_engine = get_vectorbt_backtest_engine(
+                config, data_manager, signal_calculator, risk_manager
+            )
         
-    def run_backtest(self, start_date: str, end_date: str, 
-                    initial_capital: float = 100000) -> Dict[str, Any]:
+    def run_backtest(self, start_date: str, end_date: str,
+                    initial_capital: float = 100000,
+                    use_vectorbt: bool = None) -> Dict[str, Any]:
         """
         Run comprehensive backtest of the trading system.
-        
+
         Args:
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             initial_capital: Starting capital
-            
+            use_vectorbt: Override config to use vectorbt (None = use config setting)
+
         Returns:
             Dictionary with detailed backtest results
         """
         try:
-            self.logger.info(f"Starting backtest: {start_date} to {end_date}")
-            
+            # Determine whether to use vectorbt
+            if use_vectorbt is None:
+                use_vectorbt = self.config.get('backtesting.use_vectorbt', False)
+
+            self.logger.info(f"Starting backtest: {start_date} to {end_date} "
+                           f"(vectorbt: {use_vectorbt})")
+
+            if use_vectorbt and self.vectorbt_engine:
+                self.logger.info("Using Vectorbt backtesting engine")
+                return self.vectorbt_engine.run_vectorbt_backtest(start_date, end_date, initial_capital)
+
+            # Continue with custom backtest engine
+            self.logger.info("Using custom backtesting engine")
+
             # Initialize backtest state
             self.initial_capital = initial_capital
             self.current_capital = initial_capital
@@ -87,10 +124,474 @@ class BacktestEngine:
             
             self.logger.info("Backtest completed successfully")
             return results
-            
+
         except Exception as e:
             self.logger.error(f"Backtest failed: {e}")
             return {'error': str(e)}
+
+    def run_ab_test(self, start_date: str, end_date: str,
+                   initial_capital: float = 100000) -> Dict[str, Any]:
+        """
+        Run A/B test comparing Bayesian State Machine enabled vs disabled.
+
+        Args:
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            initial_capital: Starting capital
+
+        Returns:
+            Dictionary with A/B test results comparison
+        """
+        try:
+            self.logger.info(f"Starting A/B test: {start_date} to {end_date}")
+
+            results = {
+                'test_period': f"{start_date} to {end_date}",
+                'initial_capital': initial_capital,
+                'bayesian_enabled': {},
+                'bayesian_disabled': {},
+                'comparison': {}
+            }
+
+            # Test with Bayesian State Machine enabled
+            if hasattr(self.signal_calculator, 'bayesian_state_machine') and self.signal_calculator.bayesian_state_machine:
+                self.logger.info("Running backtest WITH Bayesian State Machine...")
+                results['bayesian_enabled'] = self.run_backtest(start_date, end_date, initial_capital)
+            else:
+                self.logger.warning("Bayesian State Machine not available - skipping enabled test")
+                results['bayesian_enabled'] = {'error': 'Bayesian State Machine not available'}
+
+            # Test with Bayesian State Machine disabled (temporarily disable it)
+            original_bsm = getattr(self.signal_calculator, 'bayesian_state_machine', None)
+            if original_bsm:
+                self.signal_calculator.bayesian_state_machine = None
+                self.logger.info("Running backtest WITHOUT Bayesian State Machine...")
+                results['bayesian_disabled'] = self.run_backtest(start_date, end_date, initial_capital)
+                # Restore original state
+                self.signal_calculator.bayesian_state_machine = original_bsm
+            else:
+                self.logger.info("Running backtest WITHOUT Bayesian State Machine (already disabled)...")
+                results['bayesian_disabled'] = self.run_backtest(start_date, end_date, initial_capital)
+
+            # Compare results if both tests succeeded
+            if ('error' not in results['bayesian_enabled'] and
+                'error' not in results['bayesian_disabled']):
+
+                enabled_metrics = results['bayesian_enabled'].get('capital', {})
+                disabled_metrics = results['bayesian_disabled'].get('capital', {})
+
+                results['comparison'] = {
+                    'sharpe_ratio_improvement': (
+                        enabled_metrics.get('sharpe_ratio', 0) - disabled_metrics.get('sharpe_ratio', 0)
+                    ),
+                    'total_return_improvement': (
+                        enabled_metrics.get('total_return', 0) - disabled_metrics.get('total_return', 0)
+                    ),
+                    'max_drawdown_improvement': (
+                        disabled_metrics.get('max_drawdown', 0) - enabled_metrics.get('max_drawdown', 0)
+                    ),
+                    'win_rate_improvement': (
+                        enabled_metrics.get('win_rate', 0) - disabled_metrics.get('win_rate', 0)
+                    ),
+                    'conviction_correlation': self._analyze_conviction_correlation(results)
+                }
+
+                self.logger.info("A/B test completed successfully")
+                self.logger.info(f"Sharpe ratio improvement: {results['comparison']['sharpe_ratio_improvement']:.3f}")
+                self.logger.info(f"Total return improvement: {results['comparison']['total_return_improvement']:.3f}")
+                self.logger.info(f"Max drawdown improvement: {results['comparison']['max_drawdown_improvement']:.3f}")
+            else:
+                self.logger.warning("One or both A/B tests failed - skipping comparison")
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"A/B test failed: {e}")
+            return {'error': str(e)}
+
+    def run_walk_forward_validation(self, start_date: str, end_date: str,
+                                   initial_capital: float = 100000,
+                                   train_window_months: int = 12,
+                                   test_window_months: int = 3,
+                                   step_months: int = 1) -> Dict[str, Any]:
+        """
+        Run walk-forward validation to mitigate overfitting and look-ahead bias.
+
+        Args:
+            start_date: Overall start date (YYYY-MM-DD)
+            end_date: Overall end date (YYYY-MM-DD)
+            initial_capital: Starting capital
+            train_window_months: Training window in months
+            test_window_months: Testing window in months
+            step_months: Step size in months
+
+        Returns:
+            Dictionary with walk-forward validation results
+        """
+        try:
+            self.logger.info(f"Starting walk-forward validation: {start_date} to {end_date}")
+
+            # Convert dates
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+
+            results = {
+                'validation_type': 'walk_forward',
+                'overall_period': f"{start_date} to {end_date}",
+                'train_window_months': train_window_months,
+                'test_window_months': test_window_months,
+                'step_months': step_months,
+                'folds': [],
+                'summary': {}
+            }
+
+            current_train_start = start_dt
+
+            fold_num = 1
+            while current_train_start + pd.DateOffset(months=train_window_months + test_window_months) <= end_dt:
+
+                train_end = current_train_start + pd.DateOffset(months=train_window_months)
+                test_end = train_end + pd.DateOffset(months=test_window_months)
+
+                self.logger.info(f"Fold {fold_num}: Train {current_train_start.date()} to {train_end.date()}, "
+                               f"Test {train_end.date()} to {test_end.date()}")
+
+                # Run training period (in-sample)
+                train_result = self.run_backtest(
+                    current_train_start.strftime('%Y-%m-%d'),
+                    train_end.strftime('%Y-%m-%d'),
+                    initial_capital
+                )
+
+                # Run testing period (out-of-sample)
+                test_result = self.run_backtest(
+                    train_end.strftime('%Y-%m-%d'),
+                    test_end.strftime('%Y-%m-%d'),
+                    initial_capital
+                )
+
+                fold_data = {
+                    'fold': fold_num,
+                    'train_period': f"{current_train_start.date()} to {train_end.date()}",
+                    'test_period': f"{train_end.date()} to {test_end.date()}",
+                    'train_result': train_result,
+                    'test_result': test_result,
+                    'performance_gap': self._calculate_performance_gap(train_result, test_result)
+                }
+
+                results['folds'].append(fold_data)
+
+                # Move to next fold
+                current_train_start += pd.DateOffset(months=step_months)
+                fold_num += 1
+
+            # Calculate summary statistics
+            results['summary'] = self._calculate_walk_forward_summary(results['folds'])
+
+            self.logger.info("Walk-forward validation completed successfully")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Walk-forward validation failed: {e}")
+            return {'error': str(e)}
+
+    def run_survivor_free_backtest(self, start_date: str, end_date: str,
+                                  initial_capital: float = 100000) -> Dict[str, Any]:
+        """
+        Run survivor-free backtest using only assets that existed throughout the period.
+
+        Args:
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            initial_capital: Starting capital
+
+        Returns:
+            Dictionary with survivor-free backtest results
+        """
+        try:
+            self.logger.info(f"Starting survivor-free backtest: {start_date} to {end_date}")
+
+            # Get original universe
+            original_universe = self.config.get('universe.assets', [])
+
+            # Filter to survivor assets (those with complete data throughout period)
+            survivor_universe = self._filter_survivor_assets(original_universe, start_date, end_date)
+
+            self.logger.info(f"Original universe: {len(original_universe)} assets, "
+                           f"Survivor universe: {len(survivor_universe)} assets")
+
+            if len(survivor_universe) < 5:
+                self.logger.warning("Too few survivor assets - results may not be meaningful")
+
+            # Temporarily update config with survivor universe
+            original_config_universe = self.config._config_data.get('universe', {}).get('assets', [])
+            self.config._config_data['universe']['assets'] = survivor_universe
+
+            try:
+                # Run backtest with survivor universe
+                result = self.run_backtest(start_date, end_date, initial_capital)
+
+                # Add survivor analysis
+                result['survivor_analysis'] = {
+                    'original_universe_size': len(original_universe),
+                    'survivor_universe_size': len(survivor_universe),
+                    'survival_rate': len(survivor_universe) / len(original_universe) if original_universe else 0,
+                    'excluded_assets': list(set(original_universe) - set(survivor_universe))
+                }
+
+                return result
+
+            finally:
+                # Restore original universe
+                self.config._config_data['universe']['assets'] = original_config_universe
+
+        except Exception as e:
+            self.logger.error(f"Survivor-free backtest failed: {e}")
+            return {'error': str(e)}
+
+    def detect_backtest_biases(self, backtest_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze backtest results for common biases and issues.
+
+        Args:
+            backtest_result: Result from run_backtest
+
+        Returns:
+            Dictionary with bias analysis
+        """
+        try:
+            analysis = {
+                'look_ahead_bias': {},
+                'survivorship_bias': {},
+                'overfitting_indicators': {},
+                'data_quality_issues': {},
+                'recommendations': []
+            }
+
+            # Check for look-ahead bias indicators
+            trades = backtest_result.get('trades', [])
+            if trades:
+                # Calculate average trade duration
+                durations = []
+                for trade in trades:
+                    if 'entry_time' in trade and 'exit_time' in trade:
+                        try:
+                            entry_time = pd.to_datetime(trade['entry_time'])
+                            exit_time = pd.to_datetime(trade['exit_time'])
+                            duration = (exit_time - entry_time).total_seconds() / 86400  # days
+                            durations.append(duration)
+                        except:
+                            pass
+
+                if durations:
+                    avg_duration = np.mean(durations)
+                    analysis['look_ahead_bias']['avg_trade_duration_days'] = avg_duration
+
+                    # Flag if trades are unrealistically short (potential micro-trading)
+                    if avg_duration < 1:  # Less than 1 day
+                        analysis['look_ahead_bias']['micro_trading_detected'] = True
+                        analysis['recommendations'].append("Micro-trading detected - check for look-ahead bias")
+                    else:
+                        analysis['look_ahead_bias']['micro_trading_detected'] = False
+
+            # Check for survivorship bias
+            universe_size = len(self.config.get('universe.assets', []))
+            tradable_assets = backtest_result.get('tradable_assets_count', 0)
+
+            analysis['survivorship_bias']['universe_size'] = universe_size
+            analysis['survivorship_bias']['tradable_assets'] = tradable_assets
+            analysis['survivorship_bias']['selection_rate'] = tradable_assets / universe_size if universe_size > 0 else 0
+
+            if tradable_assets / universe_size < 0.3:  # Less than 30% survival rate
+                analysis['survivorship_bias']['potential_bias'] = True
+                analysis['recommendations'].append("Low asset survival rate - consider survivor-free analysis")
+            else:
+                analysis['survivorship_bias']['potential_bias'] = False
+
+            # Check for overfitting indicators
+            capital_metrics = backtest_result.get('capital', {})
+            total_return = capital_metrics.get('total_return', 0)
+            volatility = capital_metrics.get('volatility', 0)
+            sharpe_ratio = capital_metrics.get('sharpe_ratio', 0)
+
+            analysis['overfitting_indicators']['total_return'] = total_return
+            analysis['overfitting_indicators']['volatility'] = volatility
+            analysis['overfitting_indicators']['sharpe_ratio'] = sharpe_ratio
+
+            # Flag unrealistically high Sharpe ratios (potential overfitting)
+            if sharpe_ratio > 3.0:
+                analysis['overfitting_indicators']['unrealistic_sharpe'] = True
+                analysis['recommendations'].append("Unrealistically high Sharpe ratio - potential overfitting")
+            else:
+                analysis['overfitting_indicators']['unrealistic_sharpe'] = False
+
+            # Check data quality
+            data_quality = backtest_result.get('data_quality', {})
+            analysis['data_quality_issues'] = data_quality
+
+            if data_quality.get('missing_data_rate', 0) > 0.1:  # More than 10% missing
+                analysis['recommendations'].append("High missing data rate - check data quality")
+
+            return analysis
+
+        except Exception as e:
+            self.logger.error(f"Bias detection failed: {e}")
+            return {'error': str(e)}
+
+    def _calculate_performance_gap(self, train_result: Dict[str, Any],
+                                  test_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate performance gap between training and testing periods."""
+        try:
+            train_metrics = train_result.get('capital', {})
+            test_metrics = test_result.get('capital', {})
+
+            return {
+                'sharpe_gap': train_metrics.get('sharpe_ratio', 0) - test_metrics.get('sharpe_ratio', 0),
+                'return_gap': train_metrics.get('total_return', 0) - test_metrics.get('total_return', 0),
+                'volatility_gap': train_metrics.get('volatility', 0) - test_metrics.get('volatility', 0),
+                'overfitting_detected': abs(train_metrics.get('sharpe_ratio', 0) - test_metrics.get('sharpe_ratio', 0)) > 0.5
+            }
+
+        except Exception as e:
+            self.logger.debug(f"Performance gap calculation failed: {e}")
+            return {'error': str(e)}
+
+    def _calculate_walk_forward_summary(self, folds: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate summary statistics for walk-forward validation."""
+        try:
+            if not folds:
+                return {}
+
+            # Extract performance gaps
+            sharpe_gaps = [fold['performance_gap'].get('sharpe_gap', 0) for fold in folds
+                          if 'performance_gap' in fold and isinstance(fold['performance_gap'], dict)]
+
+            return_gap = [fold['performance_gap'].get('return_gap', 0) for fold in folds
+                         if 'performance_gap' in fold and isinstance(fold['performance_gap'], dict)]
+
+            overfitting_folds = sum(1 for fold in folds
+                                  if fold.get('performance_gap', {}).get('overfitting_detected', False))
+
+            return {
+                'total_folds': len(folds),
+                'overfitting_folds': overfitting_folds,
+                'overfitting_rate': overfitting_folds / len(folds) if folds else 0,
+                'avg_sharpe_gap': np.mean(sharpe_gaps) if sharpe_gaps else 0,
+                'avg_return_gap': np.mean(return_gap) if return_gap else 0,
+                'sharpe_gap_std': np.std(sharpe_gaps) if sharpe_gaps else 0,
+                'recommendation': self._generate_walk_forward_recommendation(overfitting_folds, len(folds))
+            }
+
+        except Exception as e:
+            self.logger.debug(f"Walk-forward summary calculation failed: {e}")
+            return {'error': str(e)}
+
+    def _generate_walk_forward_recommendation(self, overfitting_folds: int, total_folds: int) -> str:
+        """Generate recommendation based on walk-forward results."""
+        if total_folds == 0:
+            return "Insufficient data for analysis"
+
+        overfitting_rate = overfitting_folds / total_folds
+
+        if overfitting_rate > 0.5:
+            return "High overfitting detected - system may be curve-fitted"
+        elif overfitting_rate > 0.3:
+            return "Moderate overfitting detected - consider parameter regularization"
+        else:
+            return "Low overfitting detected - system appears robust"
+
+    def _filter_survivor_assets(self, universe: List[str], start_date: str, end_date: str) -> List[str]:
+        """
+        Filter universe to only include assets with complete data throughout the period.
+
+        Args:
+            universe: Original asset universe
+            start_date: Start date string
+            end_date: End date string
+
+        Returns:
+            List of survivor assets
+        """
+        try:
+            survivor_assets = []
+
+            for symbol in universe:
+                try:
+                    # Check if asset has complete data for the period
+                    ticker = yf.Ticker(symbol)
+
+                    # Get a bit more data to ensure completeness
+                    extended_start = pd.to_datetime(start_date) - timedelta(days=30)
+                    data = ticker.history(
+                        start=extended_start.strftime('%Y-%m-%d'),
+                        end=end_date,
+                        auto_adjust=True
+                    )
+
+                    if data.empty:
+                        continue
+
+                    # Check for data completeness
+                    expected_days = pd.date_range(start=start_date, end=end_date, freq='D')
+                    actual_dates = data.index.normalize()
+
+                    # Remove weekends and holidays for fair comparison
+                    trading_days = expected_days[expected_days.weekday < 5]  # Monday-Friday
+                    actual_trading_dates = actual_dates[actual_dates.weekday < 5]
+
+                    # Calculate coverage
+                    coverage = len(actual_trading_dates) / len(trading_days) if len(trading_days) > 0 else 0
+
+                    # Require at least 80% data coverage to be considered a survivor
+                    if coverage >= 0.8:
+                        survivor_assets.append(symbol)
+
+                except Exception as e:
+                    self.logger.debug(f"Failed to check survivor status for {symbol}: {e}")
+                    continue
+
+            return survivor_assets
+
+        except Exception as e:
+            self.logger.error(f"Survivor asset filtering failed: {e}")
+            return universe  # Return original universe if filtering fails
+
+    def _analyze_conviction_correlation(self, ab_results: Dict[str, Any]) -> float:
+        """
+        Analyze correlation between conviction levels and profitable trades.
+
+        Args:
+            ab_results: A/B test results
+
+        Returns:
+            Correlation coefficient between conviction and profitability
+        """
+        try:
+            # Extract trades from both runs
+            enabled_trades = ab_results['bayesian_enabled'].get('trades', [])
+            disabled_trades = ab_results['bayesian_disabled'].get('trades', [])
+
+            if not enabled_trades:
+                return 0.0
+
+            # Calculate conviction-profitability correlation for enabled runs
+            convictions = []
+            profits = []
+
+            for trade in enabled_trades:
+                if 'conviction' in trade and 'pnl_percentage' in trade:
+                    convictions.append(trade['conviction'])
+                    profits.append(1 if trade['pnl_percentage'] > 0 else 0)
+
+            if len(convictions) > 1:
+                correlation = np.corrcoef(convictions, profits)[0, 1]
+                return float(correlation)
+            else:
+                return 0.0
+
+        except Exception as e:
+            self.logger.debug(f"Could not analyze conviction correlation: {e}")
+            return 0.0
     
     def _preload_historical_data(self, start_date: str, end_date: str) -> None:
         """Pre-load all historical data needed for backtest."""

@@ -93,3 +93,44 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# IDE and Editor files
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Testing and Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.cache/
+
+# Documentation
+docs/_build/
+*.md.bak
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.cache/
+
+# Logs (if not already covered)
+*.log
+logs/

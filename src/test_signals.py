@@ -210,3 +210,105 @@ class TestSignalCalculator:
 
         with pytest.raises(ValueError, match="Symbol must be uppercase"):
             sample_signal_calculator.get_entry_signals(['spy'])
+
+    def test_bayesian_state_machine_integration(self, sample_signal_calculator, mock_data_manager):
+        """Test Bayesian State Machine integration enhances panic scores."""
+        # Mock Bayesian State Machine with high conviction
+        mock_bsm = Mock()
+        mock_bsm.prepare_features.return_value = np.array([[2.0, 1.5, 2.5, 2, -0.02]])
+        mock_bsm.assess_conviction.return_value = {
+            'conviction_level': 'high',
+            'should_trade': True,
+            'confidence': 0.9,
+            'state': 'panic',
+            'method': 'hmm'
+        }
+        sample_signal_calculator.bayesian_state_machine = mock_bsm
+
+        # Mock data for high panic scenario
+        mock_data_manager.get_price_data.side_effect = lambda symbol, **kwargs: pd.DataFrame({
+            'Open': [100.0, 101.0, 102.0, 103.0, 104.0] * 20,  # 100 data points
+            'High': [105.0, 106.0, 107.0, 108.0, 109.0] * 20,
+            'Low': [95.0, 96.0, 97.0, 98.0, 99.0] * 20,
+            'Close': [103.0, 104.0, 105.0, 106.0, 107.0] * 20,
+            'Volume': [1000000, 1100000, 1200000, 1300000, 1400000] * 20
+        }, index=pd.date_range('2023-01-01', periods=100))
+
+        mock_data_manager.get_google_trends.side_effect = lambda keyword, **kwargs: pd.DataFrame({
+            'value': [75, 78, 80, 82, 85] * 20
+        }, index=pd.date_range('2023-01-01', periods=100))
+
+        tradable_assets = ['SPY']
+        signals = sample_signal_calculator.get_entry_signals(tradable_assets)
+
+        # Should generate signal due to high Bayesian conviction
+        assert len(signals) == 1
+        signal = signals[0]
+        assert signal['conviction_level'] == 'high'
+        assert signal['confidence'] == 0.9
+        assert 'enhanced_panic_score' in signal
+        assert 'panic_score' in signal
+        assert signal['assessment_method'] == 'hmm'
+
+    def test_bayesian_state_machine_low_conviction(self, sample_signal_calculator, mock_data_manager):
+        """Test Bayesian State Machine with low conviction doesn't generate signals."""
+        # Mock Bayesian State Machine with low conviction
+        mock_bsm = Mock()
+        mock_bsm.prepare_features.return_value = np.array([[0.1, 0.0, 0.2, 0, 0.01]])
+        mock_bsm.assess_conviction.return_value = {
+            'conviction_level': 'low',
+            'should_trade': False,
+            'confidence': 0.2,
+            'state': 'calm',
+            'method': 'hmm'
+        }
+        sample_signal_calculator.bayesian_state_machine = mock_bsm
+
+        # Mock data for calm market
+        mock_data_manager.get_price_data.side_effect = lambda symbol, **kwargs: pd.DataFrame({
+            'Open': [100.0, 101.0, 102.0, 103.0, 104.0] * 20,
+            'High': [105.0, 106.0, 107.0, 108.0, 109.0] * 20,
+            'Low': [95.0, 96.0, 97.0, 98.0, 99.0] * 20,
+            'Close': [103.0, 104.0, 105.0, 106.0, 107.0] * 20,
+            'Volume': [1000000, 1100000, 1200000, 1300000, 1400000] * 20
+        }, index=pd.date_range('2023-01-01', periods=100))
+
+        mock_data_manager.get_google_trends.side_effect = lambda keyword, **kwargs: pd.DataFrame({
+            'value': [75, 78, 80, 82, 85] * 20
+        }, index=pd.date_range('2023-01-01', periods=100))
+
+        tradable_assets = ['SPY']
+        signals = sample_signal_calculator.get_entry_signals(tradable_assets)
+
+        # Should not generate signals due to low conviction (enhanced score below threshold)
+        assert len(signals) == 0
+
+    def test_bayesian_state_machine_fallback(self, sample_signal_calculator, mock_data_manager):
+        """Test fallback to rule-based logic when Bayesian State Machine fails."""
+        # Mock Bayesian State Machine to raise exception
+        mock_bsm = Mock()
+        mock_bsm.prepare_features.side_effect = Exception("HMM error")
+        sample_signal_calculator.bayesian_state_machine = mock_bsm
+
+        # Mock data that would normally generate a signal (high panic score)
+        mock_data_manager.get_price_data.side_effect = lambda symbol, **kwargs: pd.DataFrame({
+            'Open': [100.0, 101.0, 102.0, 103.0, 104.0] * 20,  # 100 data points
+            'High': [105.0, 106.0, 107.0, 108.0, 109.0] * 20,
+            'Low': [95.0, 96.0, 97.0, 98.0, 99.0] * 20,
+            'Close': [103.0, 104.0, 105.0, 106.0, 107.0] * 20,
+            'Volume': [1000000, 1100000, 1200000, 1300000, 1400000] * 20
+        }, index=pd.date_range('2023-01-01', periods=100))
+
+        mock_data_manager.get_google_trends.side_effect = lambda keyword, **kwargs: pd.DataFrame({
+            'value': [75, 78, 80, 82, 85] * 20
+        }, index=pd.date_range('2023-01-01', periods=100))
+
+        tradable_assets = ['SPY']
+        signals = sample_signal_calculator.get_entry_signals(tradable_assets)
+
+        # Should generate signal using rule-based fallback
+        assert len(signals) == 1
+        signal = signals[0]
+        assert signal['assessment_method'] == 'rules'
+        assert 'enhanced_panic_score' in signal
+        assert signal['enhanced_panic_score'] == signal['panic_score']  # No enhancement applied

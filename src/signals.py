@@ -321,7 +321,7 @@ class SignalCalculator:
                 if price_data.empty:
                     continue
                 
-                # Calculate Panic Score components for Bayesian assessment
+                # Calculate base Panic Score
                 panic_score = self.calculate_panic_score(symbol, price_data, trends_data)
 
                 # Calculate additional features for state machine
@@ -357,52 +357,56 @@ class SignalCalculator:
                 except Exception as e:
                     self.logger.debug(f"Could not calculate all z-scores for {symbol}: {e}")
 
-                # Use Bayesian State Machine for conviction assessment
+                # Enhanced Panic Score with Bayesian conviction multiplier
+                enhanced_panic_score = panic_score
+                conviction_level = 'low'
+                confidence = 0.0
+                market_state = 'unknown'
+                assessment_method = 'rules'
+
                 if self.bayesian_state_machine:
-                    features = self.bayesian_state_machine.prepare_features(
-                        volatility_z, volume_z, trends_z, g_score, price_change_5d
-                    )
-                    conviction = self.bayesian_state_machine.assess_conviction(features)
+                    try:
+                        features = self.bayesian_state_machine.prepare_features(
+                            volatility_z, volume_z, trends_z, g_score, price_change_5d
+                        )
+                        conviction = self.bayesian_state_machine.assess_conviction(features)
 
-                    # Only generate signal if state machine says to trade
-                    if conviction['should_trade']:
-                        signal = {
-                            'symbol': symbol,
-                            'panic_score': panic_score,
-                            'price_change_5d': price_change_5d,
-                            'side': 'BUY' if price_change_5d < 0 else 'SELL',  # Contrarian logic
-                            'current_price': price_data['Close'].iloc[-1],
-                            'timestamp': pd.Timestamp.now(),
-                            'conviction_level': conviction['conviction_level'],
-                            'confidence': conviction['confidence'],
-                            'market_state': conviction.get('state', 'unknown'),
-                            'assessment_method': conviction['method']
-                        }
+                        # Enhance panic score with Bayesian conviction
+                        conviction_multiplier = conviction['confidence']
+                        enhanced_panic_score = panic_score * conviction_multiplier
 
-                        signals.append(signal)
-                        self.logger.info(f"Entry signal for {symbol}: {signal['side']} "
-                                       f"(Conviction: {conviction['conviction_level']}, "
-                                       f"Confidence: {conviction['confidence']:.2f}, "
-                                       f"State: {conviction.get('state', 'unknown')})")
-                else:
-                    # Fallback to original rule-based logic
-                    if panic_score > self.panic_threshold:
-                        signal = {
-                            'symbol': symbol,
-                            'panic_score': panic_score,
-                            'price_change_5d': price_change_5d,
-                            'side': 'BUY' if price_change_5d < 0 else 'SELL',
-                            'current_price': price_data['Close'].iloc[-1],
-                            'timestamp': pd.Timestamp.now(),
-                            'conviction_level': 'high',  # Legacy assumption
-                            'confidence': min(panic_score / 4.0, 1.0),
-                            'market_state': 'unknown',
-                            'assessment_method': 'rules'
-                        }
+                        conviction_level = conviction['conviction_level']
+                        confidence = conviction['confidence']
+                        market_state = conviction.get('state', 'unknown')
+                        assessment_method = conviction['method']
 
-                        signals.append(signal)
-                        self.logger.info(f"Entry signal for {symbol}: {signal['side']} "
-                                       f"(Legacy Panic Score: {panic_score:.2f}, 5d change: {price_change_5d:.4f})")
+                        self.logger.debug(f"Enhanced panic score for {symbol}: {panic_score:.2f} -> {enhanced_panic_score:.2f} "
+                                        f"(multiplier: {conviction_multiplier:.2f})")
+
+                    except Exception as e:
+                        self.logger.warning(f"Bayesian enhancement failed for {symbol}, using base score: {e}")
+                        # Fall back to base panic score
+
+                # Generate signal based on enhanced panic score
+                if enhanced_panic_score > self.panic_threshold:
+                    signal = {
+                        'symbol': symbol,
+                        'panic_score': panic_score,  # Original score
+                        'enhanced_panic_score': enhanced_panic_score,  # Bayesian-enhanced score
+                        'price_change_5d': price_change_5d,
+                        'side': 'BUY' if price_change_5d < 0 else 'SELL',  # Contrarian logic
+                        'current_price': price_data['Close'].iloc[-1],
+                        'timestamp': pd.Timestamp.now(),
+                        'conviction_level': conviction_level,
+                        'confidence': confidence,
+                        'market_state': market_state,
+                        'assessment_method': assessment_method
+                    }
+
+                    signals.append(signal)
+                    self.logger.info(f"Entry signal for {symbol}: {signal['side']} "
+                                   f"(Enhanced Panic: {enhanced_panic_score:.2f}, Base: {panic_score:.2f}, "
+                                   f"Conviction: {conviction_level})")
                 
             except Exception as e:
                 self.logger.error(f"Failed to get entry signal for {symbol}: {e}")
